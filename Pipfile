@@ -12,6 +12,7 @@ keras = "*"
 tensorflow = "*"
 skforecast = {extras = ["all"], version = "*"}
 ipywidgets = "*"
+snakeviz = "*"
 
 [dev-packages]
 
