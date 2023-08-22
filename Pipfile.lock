@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "1c235b2b46f4944a964196874fa06e39742b6802ba69a2c986282220693f166f"
+            "sha256": "5d82a1ec39bd0a7f45a7b7ac48a69e4674a66c7bdcc672937e768bd5edaaa72f"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -1677,6 +1677,7 @@
                 "sha256:de489e3ed315bdba55c9d1554a2e89faa65d212e365ab81bc323fa52681fc60e",
                 "sha256:fb471f757fc45102a87e5d86e87dc2c8c78b34ad4f203679a46520f1d863b9da"
             ],
+            "index": "pypi",
             "version": "==0.14.0"
         },
         "tensorboard": {
@@ -1861,11 +1862,11 @@
         },
         "wheel": {
             "hashes": [
-                "sha256:12b911f083e876e10c595779709f8a88a59f45aacc646492a67fe9ef796c1b47",
-                "sha256:473219bd4cbedc62cea0cb309089b593e47c15c4a2531015f94e4e3b9a0f6981"
+                "sha256:0c5ac5ff2afb79ac23ab82bab027a0be7b5dbcf2e54dc50efe4bf507de1f7985",
+                "sha256:75909db2664838d015e3d9139004ee16711748a52c8f336b52882266540215d8"
             ],
             "markers": "python_version >= '3.7'",
-            "version": "==0.41.1"
+            "version": "==0.41.2"
         },
         "widgetsnbextension": {
             "hashes": [
