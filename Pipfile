@@ -14,6 +14,7 @@ skforecast = {extras = ["all"], version = "*"}
 ipywidgets = "*"
 snakeviz = "*"
 statsmodels = "*"
+prophet = "*"
 
 [dev-packages]
 
