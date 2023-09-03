@@ -10,7 +10,7 @@ matplotlib = "*"
 scikit-learn = "*"
 keras = "*"
 tensorflow = "*"
-skforecast = {extras = ["all"], version = "*"}
+skforecast = "*"
 ipywidgets = "*"
 snakeviz = "*"
 statsmodels = "*"
