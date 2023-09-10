@@ -20,6 +20,7 @@ ignore = [
     "ANN101", # missing-type-self
     "ANN401", # any-type
     "S101", # assert
+    "S311", # suspicious-non-cryptographic-random-usage
     "SIM108", # if-else-block-instead-of-if-exp
     "COM812", # misisng-trailing-comma
     "PLW2901", # redefiend-loop-name
