@@ -58,7 +58,9 @@ INITIAL_ACTION = Action(ActionType.SELF_USE, min_soc=MIN_SOC_PERMITTED_PERCENT/1
 
 class BatteryModel:
 
-    num_runs = 0
+    def __init__(self) -> None:
+        self.debug = False
+        self.num_runs = 0
 
     def run(self, segments: list[TimeSegment], actions: list[Action | None], initial_battery: float, debug: bool = False) -> RunResult:
         self.num_runs += 1
@@ -367,44 +369,14 @@ class BatteryModel:
                 best_actions_ever[slot].max_soc = prev_max_soc
 
 
-        for i, action in enumerate(best_actions_ever[:24]):
-            print(f"{i}: {action}")
+        if self.debug:
+            for i, action in enumerate(best_actions_ever[:24]):
+                print(f"{i}: {action}")
 
+            final_result = self.run(segments[:24], best_actions_ever[:24], initial_battery, debug=True)
+            print(final_result)
+            print(score_result(final_result))
 
-        final_result = self.run(segments[:24], best_actions_ever[:24], initial_battery, debug=True)
-        print(final_result)
-        print(score_result(final_result))
+            print(f"Number of runs: {self.num_runs}")
 
-        print(f"Number of runs: {self.num_runs}")
-
-
-
-
-
-# df = pd.read_csv('load_power_hourly.csv', usecols=['start', 'mean'], parse_dates=['start'], index_col='start')
-# consumption = [x for x in df[21:(21+24)]['mean']]
-consumption = [0.2, 0.4, 0.2, 0.2, 0.2, 0.31, 0.25, 0.41, 0.32, 0.32, 0.29, 0.4, 0.57, 0.53, 0.82, 0.32, 0.32, 0.22, 0.11, 0.45, 0.2, 0.1, 0.2, 0.2]
-generation = [0, 0, 0, 0, 0, 0, 0.05, 0.15, 0.72, 2.04, 2.33, 2.27, 2.35, 2.1, 1.94, 1.26, 0.75, 1.26, 0.11, 0.06, 0, 0, 0, 0]
-# generation[0:9] = [0] * 11
-# generation[16:] = [0] * 8
-import_tariff = [30.72] * 2 + [18.43] * 3 + [30.72] * 11 + [43.01] * 3 + [30.72] * 5
-feed_in_tariff = [19.72] * 2 + [7.43] * 3 + [19.72] * 11 + [32.01] * 3 + [19.72] * 5
-
-# consumption = [x for x in consumption for _ in (0, 1)]
-# generation = [x for x in generation for _ in (0, 1)]
-# feed_in_tariff = [15] * 24
-# import_tariff = [22.1, 20.5, 19.3, 17.9, 18.7, 18.0, 17.8, 17.6,
-# 18.3, 17.1, 20.9, 22.1, 22.3, 24.3, 24.4, 29.0,
-# 24.7, 26.8, 23.6, 21.9, 20.1, 18.0, 18.1, 17.2,
-# 19.6, 16.5, 18.7, 15.9, 18.3, 16.0, 20.3, 20.3,
-# 33.5, 34.8, 34.5, 38.7, 38.6, 38.7, 26.1, 24.7,
-# 26.4, 25.8, 24.7, 20.9, 17.9, 8.8, 8.8, 8.8]
-
-segments = [TimeSegment(generation=g, consumption=c, feed_in_tariff=f, import_tariff=i) for g, c, f, i in zip(generation, consumption, feed_in_tariff, import_tariff)]
-segments = segments + segments
-BatteryModel().shotgun_hillclimb(segments, 2)
-
-# actions = [Action.SELF_USE] * 2 + [Action.BACKUP] * 3 + [Action.SELF_USE] * 11 + [Action.FEED_IN] * 3 + [Action.SELF_USE] * 5
-
-# result = run(segments, actions, 2.1, True)
-# print(result)
+        return best_actions_ever[:24]
