@@ -1,0 +1,18 @@
+pip>=21.0,<23.2
+homeassistant==2023.3.0
+pytest-homeassistant-custom-component==0.13.4 # Matching version for 2023.3.0
+colorlog==6.7.0
+pre-commit==3.3.3
+black==23.3.0
+ruff==0.0.275
+
+statsmodels==0.14.0
+matplotlib==3.7.2
+
+# These are duplicated in .pre-commit-config.yaml
+reorder-python-imports==3.10.0
+mypy==1.4.1
+homeassistant-stubs==2023.3.0
+types-python-slugify==8.0.0.2
+voluptuous-stubs==0.1.1
+
