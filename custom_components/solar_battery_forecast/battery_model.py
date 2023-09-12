@@ -2,10 +2,9 @@ import enum
 import random
 from dataclasses import dataclass
 from math import floor
-from typing import Sequence
+from typing import Iterable, Sequence
 
 from matplotlib import pyplot as plt  # type: ignore
-from pyparsing import Iterable
 
 
 class ActionType(enum.IntEnum):
@@ -54,6 +53,7 @@ EXPORT_LIMIT_PER_SEGMENT_DC = EXPORT_LIMIT_PER_SEGMENT / DC_TO_AC_EFFICIENCY
 
 # Lowest that we can choose to discharge the battery to
 MIN_SOC_PERMITTED_PERCENT = 20
+ABSOLUTE_MIN_SOC_PERCENT = 10
 SOC_STEP_PERCENT = 20
 
 INITIAL_ACTION = Action(ActionType.SELF_USE, min_soc=MIN_SOC_PERMITTED_PERCENT / 100, max_soc=1.0)
@@ -139,6 +139,12 @@ class BatteryModel:
             plt.plot(range(0, 24), [x.generation for x in segments[:24]], marker="+", label="gen")
             plt.plot(range(0, 24), imports[:24], marker="<", label="gen")
             plt.plot(range(0, 24), exports[:24], marker=">", label="gen")
+            plt.fill_between(
+                range(0, 24),
+                [None if x is None else x.min_soc * BATTERY_CAPACITY for x in actions[:24]],
+                [None if x is None else x.max_soc * BATTERY_CAPACITY for x in actions[:24]],
+                alpha=0.1,
+            )
             plt.show()
 
         result.battery_level = battery_level
@@ -278,12 +284,14 @@ class BatteryModel:
         # # # # # best_actions_ever[3] = Action(ActionType.SELF_USE, 1.0, 1.0)
         # for i, action in enumerate(best_actions_ever):
         #     print(f"{i}: {action}")
-        # best_result_ever = run(segments, best_actions_ever, initial_battery, debug=True)
+        # best_result_ever = self.run(segments, best_actions_ever, initial_battery, debug=True)
         # print(best_result_ever)
 
         assert best_actions_ever is not None
         assert best_result_ever is not None
         print(repr(best_actions_ever))
+
+        # TODO: Use 24 rather than len(actions) below? Do we really care about optimizing beyond 24h?
 
         for slot in range(len(actions)):
             old_action = best_actions_ever[slot]
@@ -332,17 +340,41 @@ class BatteryModel:
                     best_actions_ever[candidate] = prev_action
                     break
 
+        for i, action in enumerate(best_actions_ever):
+            print(f"{i}: {action}")
+        best_result_ever = self.run(segments, best_actions_ever, initial_battery, debug=True)
+        print(best_result_ever)
+
         # Now that we've got the charge periods in place, try and optimize the min/max socs
         # This time we can lower it to 10%. We didn't want to do that during planning to as to leave a margin.
         for slot in range(len(actions)):
-            # If we can decrease the min soc without hurting the score, do that
-            prev_min_soc = best_actions_ever[slot].min_soc
-            for min_soc_percent in range(round(prev_min_soc * 100) - SOC_STEP_PERCENT, 10 - 1, -SOC_STEP_PERCENT):
-                best_actions_ever[slot].min_soc = min_soc_percent / 100
-                new_result = self.run(segments, best_actions_ever, initial_battery)
-                if not is_better(best_result_ever, new_result):
-                    break
-                best_actions_ever[slot].min_soc = prev_min_soc
+            # Introduce a shock -- a large consumption for this slot. This gives us a way of tuning the min soc so
+            # as to prevent excessive discharge in this case (e.g. to tide us through an expensive period).
+
+            if best_actions_ever[slot].action_type == ActionType.SELF_USE:
+                prev_consumption = segments[slot].consumption
+                # This needs to be large enough to drain the battery
+                segments[slot].consumption = segments[slot].generation + BATTERY_CAPACITY
+
+                test_result = self.run(segments, best_actions_ever, initial_battery)
+
+                best_min_soc = best_actions_ever[slot].min_soc
+                # TODO: Might want to step by 10%?
+                for min_soc_percent in range(ABSOLUTE_MIN_SOC_PERCENT, 101, SOC_STEP_PERCENT):
+                    min_soc = min_soc_percent / 100
+                    best_actions_ever[slot].min_soc = min_soc
+                    new_result = self.run(segments, best_actions_ever, initial_battery)
+                    if is_better(new_result, test_result):
+                        test_result = new_result
+                        best_min_soc = min_soc
+                best_actions_ever[slot].min_soc = best_min_soc
+                segments[slot].consumption = prev_consumption
+                # Reducing the min allowable min_soc can improve the score, particularly past the 24h point, as it's
+                # able to drain the battery further
+                best_result_ever = self.run(segments, best_actions_ever, initial_battery)
+            else:
+                # For charge periods, just set min soc to the min
+                best_actions_ever[slot].min_soc = ABSOLUTE_MIN_SOC_PERCENT / 100
 
             # If this is a charge period, just make it as high as it can be.
             # Othewise, we want to try the max and min before anything in between. If we're just charging normally it
