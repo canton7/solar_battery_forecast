@@ -145,6 +145,7 @@ class BatteryModel:
                 range(0, 24),
                 [None if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions[:24]],
                 [None if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions[:24]],
+                step="mid",
                 alpha=0.1,
             )
             plt.show()
