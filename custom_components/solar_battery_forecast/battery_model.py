@@ -1,6 +1,6 @@
 import random
 from dataclasses import dataclass
-from math import floor
+from typing import Iterable
 from typing import Sequence
 
 from matplotlib import pyplot as plt  # type: ignore
@@ -169,26 +169,27 @@ class BatteryModel:
         best_result_ever: float | None = None
         best_actions_ever: list[Action] = []
         slots = list(range(len(segments)))
-        for _ in range(20):
+        for _ in range(50):
             # Keeping a fair number of "Do last action" seems to make it easier for it to find solutions which only work
             # if you consistently do the same thing a lot.
             actions: list[Action | None] = [None] * len(segments)
             # I've noticed that just seeding the first 24 hours works well: it speeds things up, without compromising
             # the quality of the first 24 hours. Of course the second 24 hours suffers, but we don't care about that
             # really.
-            for _ in range(floor(24 * 0.5)):  # Seeding about half seems to work well
-                charge = random.choice(charge_set)
-                # No point having a min soc when charging
-                min_soc_percent = (
-                    MIN_SOC_PERMITTED_PERCENT
-                    if charge
-                    else random.randrange(MIN_SOC_PERMITTED_PERCENT, 101, SOC_STEP_PERCENT)
-                )
-                actions[random.randrange(0, len(actions))] = Action(
-                    charge,
-                    min_soc=min_soc_percent / 100.0,
-                    max_soc=random.randrange(min_soc_percent, 101, SOC_STEP_PERCENT) / 100.0,
-                )
+            for i in range(48):  # Seeding about half seems to work well
+                if random.choice([True, False, False]):
+                    charge = random.choice(charge_set)
+                    # No point having a min soc when charging
+                    min_soc_percent = (
+                        MIN_SOC_PERMITTED_PERCENT if charge else random.choice([MIN_SOC_PERMITTED_PERCENT, 100])
+                    )
+                    actions[i] = Action(
+                        charge,
+                        min_soc=min_soc_percent / 100.0,
+                        max_soc=random.randrange(min_soc_percent, 101, SOC_STEP_PERCENT) / 100.0
+                        if charge
+                        else random.choice([min_soc_percent, 100]) / 100.0,
+                    )
             best_actions = actions.copy()
             best_result = self.run(segments, actions, initial_battery)
             while True:
@@ -210,19 +211,28 @@ class BatteryModel:
                     assert action is not None
                     for new_charge in charge_set:
                         action.charge = new_charge
+                        # min soc is used to prevent discharge. We'll give the model 2 options: prevent discharge,
+                        # or don't.
                         for new_min_soc_percent in (
                             [MIN_SOC_PERMITTED_PERCENT]
                             if new_charge
                             or segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
-                            else range(MIN_SOC_PERMITTED_PERCENT, 101, SOC_STEP_PERCENT)
+                            else [MIN_SOC_PERMITTED_PERCENT, 100]
                         ):
                             action.min_soc = new_min_soc_percent / 100
-                            for new_max_soc_percent in (
-                                range(new_min_soc_percent, 101, SOC_STEP_PERCENT)
-                                if new_charge
-                                or segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
-                                else [100]
-                            ):
+                            # max soc is used:
+                            #  - when charging, to limit how much we pull from the grid
+                            #  - when we're consuming solar, to leave space in the battery for e.g. a cheap charge
+                            #    period in the future
+                            new_max_soc_percents: Iterable[int]
+                            if new_charge:
+                                new_max_soc_percents = range(new_min_soc_percent, 101, SOC_STEP_PERCENT)
+                            elif segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY:
+                                new_max_soc_percents = [new_min_soc_percent, 100]
+                            else:
+                                new_max_soc_percents = [100]
+
+                            for new_max_soc_percent in new_max_soc_percents:
                                 action.max_soc = new_max_soc_percent / 100
                                 new_result = self.run(segments, actions, initial_battery)
                                 if self.is_better(new_result, best_improved_result):
@@ -244,7 +254,22 @@ class BatteryModel:
                     best_actions = actions = best_improved_actions  # type: ignore
                 else:
                     # No? We've reached a local maximum
+
+                    # I would have thought this would help, but it doesn't appear to
+                    # old_action = INITIAL_ACTION
+                    # for slot in range(len(actions)):
+                    #     if best_actions[slot] is None:
+                    #         # We're going to be mutating these, so we need to clone them
+                    #         best_actions[slot] = old_action.clone()
+                    #     else:
+                    #         old_action = best_actions[slot]
+
+                    # while self.optimize_min_max_soc(segments, best_actions, initial_battery):
+                    #     pass
+                    # best_result = self.run(segments, best_actions, initial_battery)
+
                     break
+
             if best_result_ever is None or self.is_better(best_result, best_result_ever):
                 best_result_ever = best_result
                 best_actions_ever = best_actions  # type: ignore
@@ -262,6 +287,8 @@ class BatteryModel:
         assert best_actions_ever is not None
         assert best_result_ever is not None
         print(repr(best_actions_ever))
+        self.run(segments, best_actions_ever, initial_battery, debug=True)
+        self.run(segments[:24], best_actions_ever[:24], initial_battery, debug=True)
 
         # Try and simplify: if changing a slot to a "lower" action doesn't hurt the score, do it
 
