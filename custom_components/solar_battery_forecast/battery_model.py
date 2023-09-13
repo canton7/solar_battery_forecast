@@ -139,8 +139,8 @@ class BatteryModel:
             plt.plot(range(0, size), exports, marker=">", label="gen")
             plt.fill_between(
                 range(0, size),
-                [None if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions],
-                [None if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions],
+                [0 if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions],
+                [0 if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions],
                 step="mid",
                 alpha=0.1,
             )
@@ -169,7 +169,7 @@ class BatteryModel:
         best_result_ever: float | None = None
         best_actions_ever: list[Action] = []
         slots = list(range(len(segments)))
-        for _ in range(50):
+        for _loops in range(50):
             # Keeping a fair number of "Do last action" seems to make it easier for it to find solutions which only work
             # if you consistently do the same thing a lot.
             actions: list[Action | None] = [None] * len(segments)
@@ -209,6 +209,7 @@ class BatteryModel:
                         actions[slot] = actions[slot].clone()  # type: ignore
                     action = actions[slot]
                     assert action is not None
+
                     for new_charge in charge_set:
                         action.charge = new_charge
                         # min soc is used to prevent discharge. We'll give the model 2 options: prevent discharge,
@@ -236,6 +237,7 @@ class BatteryModel:
                                 action.max_soc = new_max_soc_percent / 100
                                 new_result = self.run(segments, actions, initial_battery)
                                 if self.is_better(new_result, best_improved_result):
+                                    # self.run(segments, actions, initial_battery, debug=True)
                                     found_better = True
                                     best_improved_result = new_result
                                     best_improved_actions = actions.copy()
@@ -243,10 +245,10 @@ class BatteryModel:
                                     action = actions[slot] = action.clone()
                     actions[slot] = old_action
 
-                actions_hash = self.create_hash(actions)
-                if actions_hash in visited_actions_hashes:
-                    break
-                visited_actions_hashes.add(actions_hash)
+                # actions_hash = self.create_hash(actions)
+                # if actions_hash in visited_actions_hashes:
+                #     break
+                # visited_actions_hashes.add(actions_hash)
 
                 if found_better:
                     # Did we find an improvement? Keep going
@@ -267,17 +269,25 @@ class BatteryModel:
                     # while self.optimize_min_max_soc(segments, best_actions, initial_battery):
                     #     pass
                     # best_result = self.run(segments, best_actions, initial_battery)
-
                     break
 
+            # best_result = self.run(segments[:24], best_actions[:24], initial_battery)
+            self.run(segments, best_actions, initial_battery, debug=True)
             if best_result_ever is None or self.is_better(best_result, best_result_ever):
+                print(f"Improved: {best_result}")
                 best_result_ever = best_result
                 best_actions_ever = best_actions  # type: ignore
+            else:
+                print(f"Not improved: {best_result}")
 
         # Also get rid of Nones
 
+        # At this point, scrap > 48h
+        # segments = segments[:24]
+        # best_actions_ever = best_actions_ever[:24]
+
         old_action = INITIAL_ACTION
-        for slot in range(len(actions)):
+        for slot in range(len(best_actions_ever)):
             if best_actions_ever[slot] is None:
                 # We're going to be mutating these, so we need to clone them
                 best_actions_ever[slot] = old_action.clone()
@@ -294,7 +304,7 @@ class BatteryModel:
 
         # TODO: Use 24 rather than len(actions) below? Do we really care about optimizing beyond 24h?
 
-        for slot in range(len(actions)):
+        for slot in range(len(best_actions_ever)):
             old_action = best_actions_ever[slot]
 
             copied_another_action = False
@@ -323,8 +333,8 @@ class BatteryModel:
         # cheap period say, we want the charge period to extend across all of it
         ends_of_charge_periods = [
             i
-            for i in range(1, len(actions))
-            if best_actions_ever[i].charge and (i == len(actions) - 1 or not best_actions_ever[i + 1].charge)
+            for i in range(1, len(best_actions_ever))
+            if best_actions_ever[i].charge and (i == len(best_actions_ever) - 1 or not best_actions_ever[i + 1].charge)
         ]
         for end_of_charge_period in ends_of_charge_periods:
             for candidate in range(end_of_charge_period - 1, -1, -1):
@@ -338,7 +348,7 @@ class BatteryModel:
                     break
 
         # We may need to run this more than once
-        while self.optimize_min_max_soc(segments, best_actions_ever, initial_battery):
+        while self.optimize_min_max_soc(segments, best_actions_ever, best_result_ever, initial_battery):
             pass
 
         for i, action in enumerate(best_actions_ever):
@@ -356,7 +366,7 @@ class BatteryModel:
         return best_actions_ever[:24]
 
     def optimize_min_max_soc(
-        self, segments: list[TimeSegment], actions: Sequence[Action], initial_battery: float
+        self, segments: list[TimeSegment], actions: Sequence[Action], best_result_ever: float, initial_battery: float
     ) -> bool:
         changed = False
 
