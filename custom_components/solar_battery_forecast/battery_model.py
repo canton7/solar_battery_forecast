@@ -30,13 +30,6 @@ class TimeSegment:
     import_tariff: float
 
 
-@dataclass
-class RunResult:
-    import_cost: float = 0
-    feed_in_cost: float = 0
-    battery_level: float = 0
-
-
 SEGMENT_LENGTH_HOURS = 1
 BATTERY_CAPACITY = 4.2
 BATTERY_CHARGE_AMOUNT_PER_SEGMENT = 3 * SEGMENT_LENGTH_HOURS
@@ -62,10 +55,11 @@ class BatteryModel:
 
     def run(
         self, segments: list[TimeSegment], actions: Sequence[Action | None], initial_battery: float, debug: bool = False
-    ) -> RunResult:
+    ) -> float:
         self.num_runs += 1
         battery_level = initial_battery
-        result = RunResult()
+        feed_in_cost = 0.0
+        import_cost = 0.0
         action = INITIAL_ACTION
 
         # Debug
@@ -121,31 +115,36 @@ class BatteryModel:
             battery_level += battery_change
             assert battery_level >= 0
 
-            result.feed_in_cost += solar_to_grid * segment.feed_in_tariff
-            result.import_cost += (grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY) * segment.import_tariff
+            feed_in_cost += solar_to_grid * segment.feed_in_tariff
+            import_cost += (grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY) * segment.import_tariff
 
             if debug:
                 imports.append(grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY)
                 exports.append(solar_to_grid)
                 battery_levels.append(battery_level)
 
+        score = round(feed_in_cost, 2) - round(import_cost, 2)
+
         if debug:
-            plt.plot(range(0, 24), battery_levels[:24], marker="o", label="batt")
-            plt.plot(range(0, 24), [x.consumption for x in segments[:24]], marker="x", label="cons")
-            plt.plot(range(0, 24), [x.generation for x in segments[:24]], marker="+", label="gen")
-            plt.plot(range(0, 24), imports[:24], marker="<", label="gen")
-            plt.plot(range(0, 24), exports[:24], marker=">", label="gen")
+            size = len(battery_levels)
+            print(f"Feed-in: {feed_in_cost}; import: {import_cost}; total: {score}")
+            plt.plot(range(0, size), battery_levels, marker="o", label="batt")
+            plt.plot(range(0, size), [x.consumption for x in segments], marker="x", label="cons")
+            plt.plot(range(0, size), [x.generation for x in segments], marker="+", label="gen")
+            plt.plot(range(0, size), imports, marker="<", label="gen")
+            plt.plot(range(0, size), exports, marker=">", label="gen")
             plt.fill_between(
-                range(0, 24),
-                [None if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions[:24]],
-                [None if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions[:24]],
+                range(0, size),
+                [None if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions],
+                [None if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions],
                 step="mid",
                 alpha=0.1,
             )
             plt.show()
 
-        result.battery_level = battery_level
-        return result
+        # Round to avoid floating-point error saying that one result is better than another, when in fact they're the
+        # same
+        return score
 
     def create_hash(self, actions: list[Action | None]) -> int:
         prev_action_hash = INITIAL_ACTION.make_hash()
@@ -156,30 +155,14 @@ class BatteryModel:
         return h
 
     def shotgun_hillclimb(self, segments: list[TimeSegment], initial_battery: float) -> list[Action]:
-        def score_result(result: RunResult) -> float:
-            # Round to avoid floating-point error saying that one result is better than another, when in fact they're
-            # the same
-            return round(result.feed_in_cost, 2) - round(result.import_cost, 2)  #  + round(result.battery_level * 10)
-
-        def is_better(x: RunResult, y: RunResult, margin: float = 0.0) -> bool:
-            # if x.max_solar_battery != y.max_solar_battery:
-            #     return x.max_solar_battery > y.max_solar_battery
-            x_score = score_result(x)
-            y_score = score_result(y)
-            if abs(x_score - y_score) < margin:
+        def is_better(x: float, y: float, margin: float = 0.0) -> bool:
+            if abs(x - y) < margin:
                 return False
-            return x_score > y_score
-            # Reward filling the battery at some point during the day
-
-            # If they score equal, choose the one with the larger amount of charge held in the batter for the longest
-            # This inventivises runs which charge the battery earlier, which reduces risk
-            # TODO: However, this isn't currently working
-            # print(f"Bleh. {x_score}, {y_score}, {x.battery_cumulative_charge}, {y.battery_cumulative_charge}")
-            # return x.battery_cumulative_charge > y.battery_cumulative_charge
+            return x > y
 
         visited_actions_hashes = set()
         charge_set = [False, True]
-        best_result_ever: RunResult | None = None
+        best_result_ever: float | None = None
         best_actions_ever: list[Action] = []
         slots = list(range(len(segments)))
         for _ in range(20):
@@ -342,7 +325,6 @@ class BatteryModel:
             print(f"{i}: {action}")
         best_result_ever = self.run(segments, best_actions_ever, initial_battery, debug=True)
         print(best_result_ever)
-        print(score_result(best_result_ever))
 
         # Now that we've got the charge periods in place, try and optimize the min/max socs
         # This time we can lower it to 10%. We didn't want to do that during planning to as to leave a margin.
@@ -425,12 +407,8 @@ class BatteryModel:
         if self.debug:
             for i, action in enumerate(best_actions_ever[:24]):
                 print(f"{i}: {action}")
-            print(best_result_ever)
-            print(score_result(best_result_ever))
 
-            final_result = self.run(segments[:24], best_actions_ever[:24], initial_battery, debug=True)
-            print(final_result)
-            print(score_result(final_result))
+            self.run(segments[:24], best_actions_ever[:24], initial_battery, debug=True)
 
             print(f"Number of runs: {self.num_runs}")
 
