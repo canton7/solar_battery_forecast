@@ -172,12 +172,19 @@ class BatteryModel:
         for _loops in range(50):
             # Keeping a fair number of "Do last action" seems to make it easier for it to find solutions which only work
             # if you consistently do the same thing a lot.
+            # actions: list[Action | None] = [INITIAL_ACTION.clone() for _ in range(len(segments))]
             actions: list[Action | None] = [None] * len(segments)
             # I've noticed that just seeding the first 24 hours works well: it speeds things up, without compromising
             # the quality of the first 24 hours. Of course the second 24 hours suffers, but we don't care about that
             # really.
-            for i in range(48):  # Seeding about half seems to work well
-                if random.choice([True, False, False]):
+
+            # Different types of scenario suit different numbers of seeds. For cases where we e.g. need to hold the soc
+            # low for a long period, then having a long sequence of None's works well. For simpler cases, we converge
+            # faster if there are fewer Nones, as the whole thing is a bit less volatile.
+            fill_factor = (_loops % 5) + 1
+            # TODO: Thi 24 is faster... Is it better in all cases?
+            for i in range(24):  # Seeding about half seems to work well
+                if i % fill_factor == 0:
                     charge = random.choice(charge_set)
                     # No point having a min soc when charging
                     min_soc_percent = (
@@ -256,6 +263,17 @@ class BatteryModel:
                     best_actions = actions = best_improved_actions  # type: ignore
                 else:
                     # No? We've reached a local maximum
+                    break
+
+                    # changed = self.optimize_min_max_soc(
+                    #     segments, best_actions, best_result, initial_battery, shock=False
+                    # )
+                    # if changed:
+                    #     new_result = self.run(segments, best_actions, initial_battery)
+                    #     # print(f"Local maximum! Optimized min/max soc, {best_result} -> {new_result}")
+                    #     best_result = new_result
+                    # else:
+                    #     break
 
                     # I would have thought this would help, but it doesn't appear to
                     # old_action = INITIAL_ACTION
@@ -269,16 +287,16 @@ class BatteryModel:
                     # while self.optimize_min_max_soc(segments, best_actions, initial_battery):
                     #     pass
                     # best_result = self.run(segments, best_actions, initial_battery)
-                    break
+                    # break
 
-            # best_result = self.run(segments[:24], best_actions[:24], initial_battery)
-            self.run(segments, best_actions, initial_battery, debug=True)
+            best_result_24h = self.run(segments[:24], best_actions[:24], initial_battery)
+            # self.run(segments, best_actions, initial_battery, debug=True)
             if best_result_ever is None or self.is_better(best_result, best_result_ever):
-                print(f"Improved: {best_result}")
+                print(f"Improved: {best_result} ({best_result_24h})")
                 best_result_ever = best_result
                 best_actions_ever = best_actions  # type: ignore
             else:
-                print(f"Not improved: {best_result}")
+                print(f"Not improved: {best_result} ({best_result_24h})")
 
         # Also get rid of Nones
 
@@ -348,7 +366,7 @@ class BatteryModel:
                     break
 
         # We may need to run this more than once
-        while self.optimize_min_max_soc(segments, best_actions_ever, best_result_ever, initial_battery):
+        while self.optimize_min_max_soc(segments, best_actions_ever, best_result_ever, initial_battery, margin=MARGIN):
             pass
 
         for i, action in enumerate(best_actions_ever):
@@ -366,7 +384,13 @@ class BatteryModel:
         return best_actions_ever[:24]
 
     def optimize_min_max_soc(
-        self, segments: list[TimeSegment], actions: Sequence[Action], best_result_ever: float, initial_battery: float
+        self,
+        segments: list[TimeSegment],
+        actions: Sequence[Action],
+        best_result_ever: float,
+        initial_battery: float,
+        shock: bool = True,
+        margin: float = 0.0,
     ) -> bool:
         changed = False
 
@@ -388,8 +412,9 @@ class BatteryModel:
                 prev_consumption = segments[slot].consumption
                 prev_generation = segments[slot].generation
                 # This needs to be large enough to drain the battery
-                segments[slot].consumption = BATTERY_CAPACITY
-                segments[slot].generation = 0
+                if shock:
+                    segments[slot].consumption = BATTERY_CAPACITY
+                    segments[slot].generation = 0
 
                 test_result = self.run(segments, actions, initial_battery)
 
@@ -398,7 +423,7 @@ class BatteryModel:
                     min_soc = min_soc_percent / 100
                     actions[slot].min_soc = min_soc
                     new_result = self.run(segments, actions, initial_battery)
-                    if self.is_better(new_result, test_result, margin=MARGIN):
+                    if self.is_better(new_result, test_result, margin=margin):
                         test_result = new_result
                         best_min_soc = min_soc
 
@@ -422,9 +447,8 @@ class BatteryModel:
                 prev_max_soc = actions[slot].max_soc
                 prev_generation = segments[slot].generation
                 # Don't do this if it's night
-                segments[slot].generation = (
-                    BATTERY_CAPACITY + segments[slot].consumption if segments[slot].generation > 0 else 0
-                )
+                if shock and segments[slot].generation > 0:
+                    segments[slot].generation = BATTERY_CAPACITY + segments[slot].consumption
 
                 test_result = self.run(segments, actions, initial_battery)
 
@@ -441,7 +465,7 @@ class BatteryModel:
                     actions[slot].max_soc = max_soc
                     new_result = self.run(segments, actions, initial_battery)
                     # Allow socs which result in the same score as the model to be used in preference
-                    if not self.is_better(test_result, new_result, margin=MARGIN):
+                    if not self.is_better(test_result, new_result, margin=margin):
                         test_result = new_result
                         best_max_soc = max_soc
 
@@ -456,7 +480,7 @@ class BatteryModel:
                 for max_soc_percent in range(100, round(prev_max_soc * 100), -SOC_STEP_PERCENT):
                     actions[slot].max_soc = max_soc_percent / 100
                     new_result = self.run(segments, actions, initial_battery)
-                    if not self.is_better(best_result_ever, new_result, margin=MARGIN):
+                    if not self.is_better(best_result_ever, new_result, margin=margin):
                         break
                     actions[slot].max_soc = prev_max_soc
                 changed = changed or actions[slot].max_soc != prev_max_soc
