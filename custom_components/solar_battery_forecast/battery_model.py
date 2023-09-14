@@ -183,7 +183,7 @@ class BatteryModel:
             # faster if there are fewer Nones, as the whole thing is a bit less volatile.
             fill_factor = (_loops % 5) + 1
             # TODO: Thi 24 is faster... Is it better in all cases?
-            for i in range(24):  # Seeding about half seems to work well
+            for i in range(48):  # Seeding about half seems to work well
                 if i % fill_factor == 0:
                     charge = random.choice(charge_set)
                     # No point having a min soc when charging
@@ -222,10 +222,10 @@ class BatteryModel:
                         # min soc is used to prevent discharge. We'll give the model 2 options: prevent discharge,
                         # or don't.
                         for new_min_soc_percent in (
-                            [MIN_SOC_PERMITTED_PERCENT]
+                            (MIN_SOC_PERMITTED_PERCENT,)
                             if new_charge
                             or segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
-                            else [MIN_SOC_PERMITTED_PERCENT, 100]
+                            else (MIN_SOC_PERMITTED_PERCENT, 100)
                         ):
                             action.min_soc = new_min_soc_percent / 100
                             # max soc is used:
@@ -236,9 +236,9 @@ class BatteryModel:
                             if new_charge:
                                 new_max_soc_percents = range(new_min_soc_percent, 101, SOC_STEP_PERCENT)
                             elif segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY:
-                                new_max_soc_percents = [new_min_soc_percent, 100]
+                                new_max_soc_percents = (new_min_soc_percent, 100)
                             else:
-                                new_max_soc_percents = [100]
+                                new_max_soc_percents = (100,)
 
                             for new_max_soc_percent in new_max_soc_percents:
                                 action.max_soc = new_max_soc_percent / 100
@@ -250,7 +250,21 @@ class BatteryModel:
                                     best_improved_actions = actions.copy()
                                     # Since we're going to be further mutating this action, we need to clone it now
                                     action = actions[slot] = action.clone()
+
                     actions[slot] = old_action
+
+                # Try and remove actions, if doing so doesn't actively make things worse
+                # if found_better:
+                # removed = 0
+                # for slot in range(len(actions)):
+                #     old_action = best_improved_actions[slot]
+                #     best_improved_actions[slot] = None
+                #     new_result = self.run(segments, best_improved_actions, initial_battery)
+                #     if self.is_better(best_improved_result, new_result):
+                #         best_improved_actions[slot] = old_action
+                #     else:
+                #         removed += 1
+                # print(f"Removed {removed}")
 
                 # actions_hash = self.create_hash(actions)
                 # if actions_hash in visited_actions_hashes:
@@ -263,7 +277,19 @@ class BatteryModel:
                     best_actions = actions = best_improved_actions  # type: ignore
                 else:
                     # No? We've reached a local maximum
-                    break
+                    removed = 0
+                    for slot in range(len(actions)):
+                        old_action = actions[slot]
+                        if old_action is not None:
+                            actions[slot] = None
+                            new_result = self.run(segments, actions, initial_battery)
+                            if self.is_better(best_improved_result, new_result):
+                                actions[slot] = old_action
+                            else:
+                                removed += 1
+                    print(f"Removed {removed}")
+                    if removed == 0:
+                        break
 
                     # changed = self.optimize_min_max_soc(
                     #     segments, best_actions, best_result, initial_battery, shock=False
@@ -290,7 +316,7 @@ class BatteryModel:
                     # break
 
             best_result_24h = self.run(segments[:24], best_actions[:24], initial_battery)
-            # self.run(segments, best_actions, initial_battery, debug=True)
+            self.run(segments, best_actions, initial_battery, debug=True)
             if best_result_ever is None or self.is_better(best_result, best_result_ever):
                 print(f"Improved: {best_result} ({best_result_24h})")
                 best_result_ever = best_result
