@@ -169,7 +169,7 @@ class BatteryModel:
         best_result_ever: float | None = None
         best_actions_ever: list[Action] = []
         slots = list(range(len(segments)))
-        for _loops in range(50):
+        for _loops in range(10):
             # Keeping a fair number of "Do last action" seems to make it easier for it to find solutions which only work
             # if you consistently do the same thing a lot.
             # actions: list[Action | None] = [INITIAL_ACTION.clone() for _ in range(len(segments))]
@@ -181,14 +181,17 @@ class BatteryModel:
             # Different types of scenario suit different numbers of seeds. For cases where we e.g. need to hold the soc
             # low for a long period, then having a long sequence of None's works well. For simpler cases, we converge
             # faster if there are fewer Nones, as the whole thing is a bit less volatile.
-            fill_factor = (_loops % 5) + 1
+            # A long fill factor is quite often better if we need to keep the soc low all day, but other than that
+            # short fill factors tend to be better.
+            fill_factor = (1, 4, 8)[(_loops % 3)]
             # TODO: Thi 24 is faster... Is it better in all cases?
             for i in range(48):  # Seeding about half seems to work well
                 if i % fill_factor == 0:
+                    # if True:
                     charge = random.choice(charge_set)
                     # No point having a min soc when charging
                     min_soc_percent = (
-                        MIN_SOC_PERMITTED_PERCENT if charge else random.choice([MIN_SOC_PERMITTED_PERCENT, 100])
+                        MIN_SOC_PERMITTED_PERCENT if charge else random.choice((MIN_SOC_PERMITTED_PERCENT, 100))
                     )
                     actions[i] = Action(
                         charge,
@@ -253,19 +256,34 @@ class BatteryModel:
 
                     actions[slot] = old_action
 
-                # Try and remove actions, if doing so doesn't actively make things worse
-                # if found_better:
-                # removed = 0
-                # for slot in range(len(actions)):
-                #     old_action = best_improved_actions[slot]
-                #     best_improved_actions[slot] = None
-                #     new_result = self.run(segments, best_improved_actions, initial_battery)
-                #     if self.is_better(best_improved_result, new_result):
-                #         best_improved_actions[slot] = old_action
-                #     else:
-                #         removed += 1
+                # Doing this here, rather than only when we reach a local maximum, seems to help some scenarios with
+                # high generation and a late free period
+                removed = 0
+                for slot in range(len(actions)):
+                    old_action = actions[slot]
+                    if old_action is not None:
+                        actions[slot] = None
+                        new_result = self.run(segments, actions, initial_battery)
+                        if self.is_better(best_improved_result, new_result):
+                            actions[slot] = old_action
+                        else:
+                            removed += 1
                 # print(f"Removed {removed}")
 
+                # Try and remove actions, if doing so doesn't actively make things worse
+                # if found_better:
+                #     removed = 0
+                #     for slot in range(len(actions)):
+                #         old_action = best_improved_actions[slot]
+                #         best_improved_actions[slot] = None
+                #         new_result = self.run(segments, best_improved_actions, initial_battery)
+                #         if self.is_better(best_improved_result, new_result):
+                #             best_improved_actions[slot] = old_action
+                #         else:
+                #             removed += 1
+                # print(f"Removed {removed}")
+
+                # This does appear to be excluding solutions sometimes...
                 # actions_hash = self.create_hash(actions)
                 # if actions_hash in visited_actions_hashes:
                 #     break
@@ -277,19 +295,19 @@ class BatteryModel:
                     best_actions = actions = best_improved_actions  # type: ignore
                 else:
                     # No? We've reached a local maximum
-                    removed = 0
-                    for slot in range(len(actions)):
-                        old_action = actions[slot]
-                        if old_action is not None:
-                            actions[slot] = None
-                            new_result = self.run(segments, actions, initial_battery)
-                            if self.is_better(best_improved_result, new_result):
-                                actions[slot] = old_action
-                            else:
-                                removed += 1
-                    print(f"Removed {removed}")
-                    if removed == 0:
-                        break
+                    # removed = 0
+                    # for slot in range(len(actions)):
+                    #     old_action = actions[slot]
+                    #     if old_action is not None:
+                    #         actions[slot] = None
+                    #         new_result = self.run(segments, actions, initial_battery)
+                    #         if self.is_better(best_improved_result, new_result, margin=MARGIN):
+                    #             actions[slot] = old_action
+                    #         else:
+                    #             removed += 1
+                    # # print(f"Removed {removed}")
+                    # if removed == 0:
+                    break
 
                     # changed = self.optimize_min_max_soc(
                     #     segments, best_actions, best_result, initial_battery, shock=False
@@ -316,7 +334,7 @@ class BatteryModel:
                     # break
 
             best_result_24h = self.run(segments[:24], best_actions[:24], initial_battery)
-            self.run(segments, best_actions, initial_battery, debug=True)
+            # self.run(segments, best_actions, initial_battery, debug=True)
             if best_result_ever is None or self.is_better(best_result, best_result_ever):
                 print(f"Improved: {best_result} ({best_result_24h})")
                 best_result_ever = best_result
@@ -392,8 +410,28 @@ class BatteryModel:
                     break
 
         # We may need to run this more than once
-        while self.optimize_min_max_soc(segments, best_actions_ever, best_result_ever, initial_battery, margin=MARGIN):
-            pass
+        while True:
+            changed, best_result_ever = self.optimize_min_max_soc(
+                segments, best_actions_ever, best_result_ever, initial_battery, margin=MARGIN
+            )
+            if not changed:
+                break
+
+        # Now we want to shorten charge periods. The problem is that if generation is predicted to be low, the model
+        # can extend an overnight charging period until mid-morning. However there's no advantage in doing this:
+        # generation might be higher than expected in which case this is detremental, and using the grid later in
+        # the day is no worse than earlier in the day.
+        # Run this after optimizing min/max socs. Sometimes the model will insert a small "draw from grid not batteries"
+        # after a charge, because it doesn't have the control to charge to exactly the right amount. The min/max socs
+        # fixes that, and this step will remove the unnecessary charge.
+        # However, I think this does more harm than good, as it will sometimes remove charges within a charge period.
+        # for slot in range(len(best_actions_ever) - 1, -1, -1):
+        #     if best_actions_ever[slot].charge:
+        #         best_actions_ever[slot].charge = False
+        #         new_result = self.run(segments, best_actions_ever, initial_battery)
+        #         print(f"{slot}: {best_result_ever} -> {new_result}")
+        #         if self.is_better(best_result_ever, new_result, margin=MARGIN):
+        #             best_actions_ever[slot].charge = True
 
         for i, action in enumerate(best_actions_ever):
             print(f"{i}: {action}")
@@ -417,7 +455,7 @@ class BatteryModel:
         initial_battery: float,
         shock: bool = True,
         margin: float = 0.0,
-    ) -> bool:
+    ) -> tuple[bool, float]:
         changed = False
 
         # Now that we've got the charge periods in place, try and optimize the min/max socs
@@ -507,8 +545,9 @@ class BatteryModel:
                     actions[slot].max_soc = max_soc_percent / 100
                     new_result = self.run(segments, actions, initial_battery)
                     if not self.is_better(best_result_ever, new_result, margin=margin):
+                        best_result_ever = new_result
                         break
                     actions[slot].max_soc = prev_max_soc
                 changed = changed or actions[slot].max_soc != prev_max_soc
 
-        return changed
+        return (changed, best_result_ever)
