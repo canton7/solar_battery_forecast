@@ -1,16 +1,25 @@
 import random
-from dataclasses import dataclass
 from typing import Iterable
 from typing import Sequence
 
-from matplotlib import pyplot as plt  # type: ignore
+from numba import bool_
+from numba import float32
+from numba import njit
+from numba.experimental import jitclass
+from numba.typed import List
 
 
-@dataclass
+# @dataclass
+@jitclass
 class Action:
-    charge: bool
-    min_soc: float
-    max_soc: float
+    charge: bool_
+    min_soc: float32
+    max_soc: float32
+
+    def __init__(self, charge: bool_, min_soc: float32, max_soc: float32) -> None:
+        self.charge = charge
+        self.min_soc = min_soc
+        self.max_soc = max_soc
 
     def clone(self) -> "Action":
         return Action(self.charge, self.min_soc, self.max_soc)
@@ -18,16 +27,23 @@ class Action:
     def make_hash(self) -> int:
         return hash((self.charge, self.min_soc, self.max_soc))
 
-    def __repr__(self) -> str:
-        return f"Action({self.charge}, {self.min_soc}, {self.max_soc})"
+    # def __repr__(self) -> str:
+    #     return f"Action({self.charge}, {self.min_soc}, {self.max_soc})"
 
 
-@dataclass
+# @dataclass
+@jitclass
 class TimeSegment:
     generation: float
     consumption: float
     feed_in_tariff: float
     import_tariff: float
+
+    def __init__(self, generation: float, consumption: float, feed_in_tariff: float, import_tariff: float) -> None:
+        self.generation = generation
+        self.consumption = consumption
+        self.feed_in_tariff = feed_in_tariff
+        self.import_tariff = import_tariff
 
 
 SEGMENT_LENGTH_HOURS = 1
@@ -49,106 +65,109 @@ OPTIMIZATION_SOC_STEP_PERCENT = 10
 # worse can still be selected
 MARGIN = 1.0
 
-INITIAL_ACTION = Action(charge=False, min_soc=MIN_SOC_PERMITTED_PERCENT / 100, max_soc=1.0)
+INITIAL_ACTION = Action(False, MIN_SOC_PERMITTED_PERCENT / 100, 1.0)
+
+
+@njit(nopython=True)
+def run(
+    segments: List[TimeSegment], actions: List[Action | None], initial_battery: float, debug: bool = False
+) -> float:
+    # self.num_runs += 1
+    battery_level = initial_battery
+    feed_in_cost = 0.0
+    import_cost = 0.0
+    action = Action(False, 0.2, 1.0)
+
+    # Debug
+    # battery_levels: list[float] = []
+    # imports: list[float] = []
+    # exports: list[float] = []
+
+    for slot in range(len(segments)):
+        segment = segments[slot]
+        action_change = actions[slot]
+        # for segment, action_change in zip(segments, actions, strict=True):
+        if action_change is not None:
+            action = action_change
+        solar_to_battery = 0.0
+        solar_to_grid = 0.0
+        battery_to_load = 0.0
+        grid_to_load = 0.0
+        grid_to_battery_dc = 0.0
+
+        if action.charge:
+            # I don't actually know, but... I assume that solar replaces grid up to the charge rate
+            solar_to_battery = max(0, min(BATTERY_CAPACITY * action.max_soc - battery_level, segment.generation))
+            grid_to_battery_dc = max(
+                0,
+                min(
+                    BATTERY_CAPACITY * action.max_soc - battery_level - solar_to_battery,
+                    BATTERY_CHARGE_AMOUNT_PER_SEGMENT,
+                ),
+            )
+            excess_solar_ac = (segment.generation - solar_to_battery) * DC_TO_AC_EFFICIENCY
+            # Doesn't consider inverter limits
+            if excess_solar_ac > segment.consumption:
+                solar_to_grid = min(EXPORT_LIMIT_PER_SEGMENT, excess_solar_ac - segment.consumption)
+            else:
+                grid_to_load = segment.consumption - excess_solar_ac
+        else:
+            # If generation can cover consumption, excess goes into battery. Else excess comes from battery if
+            # available
+            if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY:
+                excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
+                solar_to_battery = max(0.0, min(BATTERY_CAPACITY * action.max_soc - battery_level, excess_solar_dc))
+                solar_to_grid = (
+                    min(EXPORT_LIMIT_PER_SEGMENT_DC, excess_solar_dc - solar_to_battery) * DC_TO_AC_EFFICIENCY
+                )
+            else:
+                required_energy_ac = segment.consumption - segment.generation * DC_TO_AC_EFFICIENCY
+                battery_to_load = max(
+                    0.0,
+                    min(battery_level - BATTERY_CAPACITY * action.min_soc, required_energy_ac / DC_TO_AC_EFFICIENCY),
+                )
+                grid_to_load = required_energy_ac - battery_to_load * DC_TO_AC_EFFICIENCY
+
+        battery_change = solar_to_battery + grid_to_battery_dc - battery_to_load
+        battery_level += battery_change
+        assert battery_level >= 0
+
+        feed_in_cost += solar_to_grid * segment.feed_in_tariff
+        import_cost += (grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY) * segment.import_tariff
+
+        # if debug:
+        #     imports.append(grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY)
+        #     exports.append(solar_to_grid)
+        #     battery_levels.append(battery_level)
+
+    score = round(feed_in_cost, 2) - round(import_cost, 2)
+
+    # if debug:
+    #     size = len(battery_levels)
+    #     print(f"Feed-in: {feed_in_cost}; import: {import_cost}; total: {score}")
+    #     plt.plot(range(0, size), battery_levels, marker="o", label="batt")
+    #     plt.plot(range(0, size), [x.consumption for x in segments], marker="x", label="cons")
+    #     plt.plot(range(0, size), [x.generation for x in segments], marker="+", label="gen")
+    #     plt.plot(range(0, size), imports, marker="<", label="gen")
+    #     plt.plot(range(0, size), exports, marker=">", label="gen")
+    #     plt.fill_between(
+    #         range(0, size),
+    #         [0 if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions],
+    #         [0 if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions],
+    #         step="mid",
+    #         alpha=0.1,
+    #     )
+    #     plt.show()
+
+    # Round to avoid floating-point error saying that one result is better than another, when in fact they're the
+    # same
+    return score
 
 
 class BatteryModel:
     def __init__(self) -> None:
         self.debug = False
         self.num_runs = 0
-
-    def run(
-        self, segments: list[TimeSegment], actions: Sequence[Action | None], initial_battery: float, debug: bool = False
-    ) -> float:
-        self.num_runs += 1
-        battery_level = initial_battery
-        feed_in_cost = 0.0
-        import_cost = 0.0
-        action = INITIAL_ACTION
-
-        # Debug
-        battery_levels = []
-        imports = []
-        exports = []
-
-        for segment, action_change in zip(segments, actions, strict=True):
-            if action_change is not None:
-                action = action_change
-            solar_to_battery = 0.0
-            solar_to_grid = 0.0
-            battery_to_load = 0.0
-            grid_to_load = 0.0
-            grid_to_battery_dc = 0.0
-
-            if action.charge:
-                # I don't actually know, but... I assume that solar replaces grid up to the charge rate
-                solar_to_battery = max(0, min(BATTERY_CAPACITY * action.max_soc - battery_level, segment.generation))
-                grid_to_battery_dc = max(
-                    0,
-                    min(
-                        BATTERY_CAPACITY * action.max_soc - battery_level - solar_to_battery,
-                        BATTERY_CHARGE_AMOUNT_PER_SEGMENT,
-                    ),
-                )
-                excess_solar_ac = (segment.generation - solar_to_battery) * DC_TO_AC_EFFICIENCY
-                # Doesn't consider inverter limits
-                if excess_solar_ac > segment.consumption:
-                    solar_to_grid = min(EXPORT_LIMIT_PER_SEGMENT, excess_solar_ac - segment.consumption)
-                else:
-                    grid_to_load = segment.consumption - excess_solar_ac
-            else:
-                # If generation can cover consumption, excess goes into battery. Else excess comes from battery if
-                # available
-                if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY:
-                    excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
-                    solar_to_battery = max(0.0, min(BATTERY_CAPACITY * action.max_soc - battery_level, excess_solar_dc))
-                    solar_to_grid = (
-                        min(EXPORT_LIMIT_PER_SEGMENT_DC, excess_solar_dc - solar_to_battery) * DC_TO_AC_EFFICIENCY
-                    )
-                else:
-                    required_energy_ac = segment.consumption - segment.generation * DC_TO_AC_EFFICIENCY
-                    battery_to_load = max(
-                        0.0,
-                        min(
-                            battery_level - BATTERY_CAPACITY * action.min_soc, required_energy_ac / DC_TO_AC_EFFICIENCY
-                        ),
-                    )
-                    grid_to_load = required_energy_ac - battery_to_load * DC_TO_AC_EFFICIENCY
-
-            battery_change = solar_to_battery + grid_to_battery_dc - battery_to_load
-            battery_level += battery_change
-            assert battery_level >= 0
-
-            feed_in_cost += solar_to_grid * segment.feed_in_tariff
-            import_cost += (grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY) * segment.import_tariff
-
-            if debug:
-                imports.append(grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY)
-                exports.append(solar_to_grid)
-                battery_levels.append(battery_level)
-
-        score = round(feed_in_cost, 2) - round(import_cost, 2)
-
-        if debug:
-            size = len(battery_levels)
-            print(f"Feed-in: {feed_in_cost}; import: {import_cost}; total: {score}")
-            plt.plot(range(0, size), battery_levels, marker="o", label="batt")
-            plt.plot(range(0, size), [x.consumption for x in segments], marker="x", label="cons")
-            plt.plot(range(0, size), [x.generation for x in segments], marker="+", label="gen")
-            plt.plot(range(0, size), imports, marker="<", label="gen")
-            plt.plot(range(0, size), exports, marker=">", label="gen")
-            plt.fill_between(
-                range(0, size),
-                [0 if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions],
-                [0 if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions],
-                step="mid",
-                alpha=0.1,
-            )
-            plt.show()
-
-        # Round to avoid floating-point error saying that one result is better than another, when in fact they're the
-        # same
-        return score
 
     def create_hash(self, actions: list[Action | None]) -> int:
         prev_action_hash = INITIAL_ACTION.make_hash()
@@ -183,7 +202,7 @@ class BatteryModel:
             # faster if there are fewer Nones, as the whole thing is a bit less volatile.
             # A long fill factor is quite often better if we need to keep the soc low all day, but other than that
             # short fill factors tend to be better.
-            fill_factor = (1, 4, 8)[(_loops % 3)]
+            fill_factor = 1  # (1, 4, 8)[(_loops % 3)]
             # TODO: Thi 24 is faster... Is it better in all cases?
             for i in range(48):  # Seeding about half seems to work well
                 if i % fill_factor == 0:
@@ -200,8 +219,10 @@ class BatteryModel:
                         if charge
                         else random.choice([min_soc_percent, 100]) / 100.0,
                     )
+            segments = List(segments)
+            actions = List(actions)
             best_actions = actions.copy()
-            best_result = self.run(segments, actions, initial_battery)
+            best_result = run(segments, actions, initial_battery)
             while True:
                 found_better = False
                 # We evaluate each of the possible changes, and see which one has the greatest effect
@@ -245,7 +266,7 @@ class BatteryModel:
 
                             for new_max_soc_percent in new_max_soc_percents:
                                 action.max_soc = new_max_soc_percent / 100
-                                new_result = self.run(segments, actions, initial_battery)
+                                new_result = run(segments, actions, initial_battery)
                                 if self.is_better(new_result, best_improved_result):
                                     # self.run(segments, actions, initial_battery, debug=True)
                                     found_better = True
@@ -258,16 +279,18 @@ class BatteryModel:
 
                 # Doing this here, rather than only when we reach a local maximum, seems to help some scenarios with
                 # high generation and a late free period
-                removed = 0
-                for slot in range(len(actions)):
-                    old_action = actions[slot]
-                    if old_action is not None:
-                        actions[slot] = None
-                        new_result = self.run(segments, actions, initial_battery)
-                        if self.is_better(best_improved_result, new_result):
-                            actions[slot] = old_action
-                        else:
-                            removed += 1
+                # removed = 0
+                # for slot in range(len(actions)):
+                #     test = List.empty_list(Action | None)
+                #     actions_nb = List(actions)
+                #     old_action = actions[slot]
+                #     if old_action is not None:
+                #         actions_nb[slot] = None
+                #         new_result = run(List(segments), actions_nb, initial_battery)
+                #         if self.is_better(best_improved_result, new_result):
+                #             actions_nb[slot] = old_action
+                #         else:
+                #             removed += 1
                 # print(f"Removed {removed}")
 
                 # Try and remove actions, if doing so doesn't actively make things worse
@@ -333,7 +356,7 @@ class BatteryModel:
                     # best_result = self.run(segments, best_actions, initial_battery)
                     # break
 
-            best_result_24h = self.run(segments[:24], best_actions[:24], initial_battery)
+            best_result_24h = run(segments[:24], best_actions[:24], initial_battery)
             # self.run(segments, best_actions, initial_battery, debug=True)
             if best_result_ever is None or self.is_better(best_result, best_result_ever):
                 print(f"Improved: {best_result} ({best_result_24h})")
@@ -358,9 +381,9 @@ class BatteryModel:
 
         assert best_actions_ever is not None
         assert best_result_ever is not None
-        print(repr(best_actions_ever))
-        self.run(segments, best_actions_ever, initial_battery, debug=True)
-        self.run(segments[:24], best_actions_ever[:24], initial_battery, debug=True)
+        # print(repr(best_actions_ever))
+        # self.run(segments, best_actions_ever, initial_battery, debug=True)
+        # self.run(segments[:24], best_actions_ever[:24], initial_battery, debug=True)
 
         # Try and simplify: if changing a slot to a "lower" action doesn't hurt the score, do it
 
@@ -374,7 +397,7 @@ class BatteryModel:
             # If we can make it the same as the previous action, do that
             if not copied_another_action and slot > 0:
                 best_actions_ever[slot] = best_actions_ever[slot - 1].clone()
-                new_result = self.run(segments, best_actions_ever, initial_battery)
+                new_result = run(segments, best_actions_ever, initial_battery)
                 if not self.is_better(best_result_ever, new_result, margin=MARGIN):
                     copied_another_action = True
                 else:
@@ -383,7 +406,7 @@ class BatteryModel:
             # Try and disable charging
             if not copied_another_action and best_actions_ever[slot].charge:
                 best_actions_ever[slot].charge = False
-                new_result = self.run(segments, best_actions_ever, initial_battery)
+                new_result = run(segments, best_actions_ever, initial_battery)
                 # If the old result was better, go back to it and continue. Otherwise go for the new result
                 if not self.is_better(best_result_ever, new_result, margin=MARGIN):
                     break
@@ -404,7 +427,7 @@ class BatteryModel:
                     continue
                 prev_action = best_actions_ever[candidate]
                 best_actions_ever[candidate] = best_actions_ever[end_of_charge_period].clone()
-                new_result = self.run(segments, best_actions_ever, initial_battery)
+                new_result = run(segments, best_actions_ever, initial_battery)
                 if self.is_better(best_result_ever, new_result, margin=MARGIN):
                     best_actions_ever[candidate] = prev_action
                     break
@@ -435,13 +458,13 @@ class BatteryModel:
 
         for i, action in enumerate(best_actions_ever):
             print(f"{i}: {action}")
-        best_result_ever = self.run(segments, best_actions_ever, initial_battery, debug=True)
+        best_result_ever = run(segments, best_actions_ever, initial_battery, debug=True)
 
         if self.debug:
             for i, action in enumerate(best_actions_ever[:24]):
                 print(f"{i}: {action}")
 
-            self.run(segments[:24], best_actions_ever[:24], initial_battery, debug=True)
+            # self.run(segments[:24], best_actions_ever[:24], initial_battery, debug=True)
 
             print(f"Number of runs: {self.num_runs}")
 
@@ -480,13 +503,13 @@ class BatteryModel:
                     segments[slot].consumption = BATTERY_CAPACITY
                     segments[slot].generation = 0
 
-                test_result = self.run(segments, actions, initial_battery)
+                test_result = run(segments, actions, initial_battery)
 
                 best_min_soc = actions[slot].min_soc
                 for min_soc_percent in range(OPTIMIZATION_MIN_SOC_PERCENT, 101, OPTIMIZATION_SOC_STEP_PERCENT):
                     min_soc = min_soc_percent / 100
                     actions[slot].min_soc = min_soc
-                    new_result = self.run(segments, actions, initial_battery)
+                    new_result = run(segments, actions, initial_battery)
                     if self.is_better(new_result, test_result, margin=margin):
                         test_result = new_result
                         best_min_soc = min_soc
@@ -498,7 +521,7 @@ class BatteryModel:
                 segments[slot].generation = prev_generation
                 # Reducing the min allowable min_soc can improve the score, particularly past the 24h point, as it's
                 # able to drain the battery further
-                best_result_ever = self.run(segments, actions, initial_battery)
+                best_result_ever = run(segments, actions, initial_battery)
 
             # We want to try the max and min before anything in between. If we're just charging normally it
             # should be 1.0, if we're using it to prevent discharge it should be min_soc, and more specialised cases
@@ -514,7 +537,7 @@ class BatteryModel:
                 if shock and segments[slot].generation > 0:
                     segments[slot].generation = BATTERY_CAPACITY + segments[slot].consumption
 
-                test_result = self.run(segments, actions, initial_battery)
+                test_result = run(segments, actions, initial_battery)
 
                 best_max_soc = actions[slot].max_soc
                 # We prefer a max soc of 1.0 (normal operation) or 0.1 (prevent charge) before other values.
@@ -527,7 +550,7 @@ class BatteryModel:
                 for max_soc_percent in max_soc_percents:
                     max_soc = max_soc_percent / 100
                     actions[slot].max_soc = max_soc
-                    new_result = self.run(segments, actions, initial_battery)
+                    new_result = run(segments, actions, initial_battery)
                     # Allow socs which result in the same score as the model to be used in preference
                     if not self.is_better(test_result, new_result, margin=margin):
                         test_result = new_result
@@ -536,14 +559,14 @@ class BatteryModel:
                 changed = changed or prev_max_soc != best_max_soc
                 actions[slot].max_soc = best_max_soc
                 segments[slot].generation = prev_generation
-                best_result_ever = self.run(segments, actions, initial_battery)
+                best_result_ever = run(segments, actions, initial_battery)
 
         for slot in range(len(actions)):
             if actions[slot].charge:
                 prev_max_soc = actions[slot].max_soc
                 for max_soc_percent in range(100, round(prev_max_soc * 100), -SOC_STEP_PERCENT):
                     actions[slot].max_soc = max_soc_percent / 100
-                    new_result = self.run(segments, actions, initial_battery)
+                    new_result = run(segments, actions, initial_battery)
                     if not self.is_better(best_result_ever, new_result, margin=margin):
                         best_result_ever = new_result
                         break
