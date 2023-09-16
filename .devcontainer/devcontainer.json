@@ -1,7 +1,7 @@
 {
     "image": "mcr.microsoft.com/vscode/devcontainers/python:0-3.10-bullseye",
     "name": "Solar Battery Forecast",
-    // "appPort": ["9123:8123"],
+    "appPort": ["9123:8123"],
     "postCreateCommand": ".devcontainer/setup",
     "containerEnv": {
         "PYTHONPATH": "." // For VS Code's test pane discovery

@@ -15,6 +15,4 @@ pandas-stubs # Version should automatically match pandas version
 reorder-python-imports==3.10.0
 mypy==1.4.1
 homeassistant-stubs==2023.3.0
-types-python-slugify==8.0.0.2
 voluptuous-stubs==0.1.1
-
