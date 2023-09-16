@@ -1,5 +1,7 @@
 import logging
+from datetime import datetime
 from datetime import timezone
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -7,6 +9,7 @@ from homeassistant.components import recorder
 from homeassistant.components.recorder import statistics
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.util import dt
 
 from . import load_forecaster
@@ -23,10 +26,17 @@ class Controller(EntityController):
         self._config_entry = config_entry
 
         self._entities: set[EntityControllerSubscriber] = set()
+        self._unload: list[Callable[[], None]] = []
+
         self._load_forecaster = LoadForecaster()
         self._load_power_sensor = "sensor.load_power"
 
         self._load_forecast: pd.DataFrame | None = None
+
+        async def _refresh(_datetime: datetime) -> None:
+            await self.load()
+
+        self._unload.append(async_track_time_change(self._hass, _refresh, minute=0, second=0))
 
     @property
     def load_forecast(self) -> pd.DataFrame | None:
@@ -37,6 +47,7 @@ class Controller(EntityController):
         return self._config_entry
 
     async def load(self) -> None:
+        _LOGGER.info("Reloading forecasts")
         self._load_forecast = await self._create_load_forecast()
         self._update_entities()
 
@@ -73,7 +84,8 @@ class Controller(EntityController):
         return forecast
 
     def unload(self) -> None:
-        pass
+        for u in self._unload:
+            u()
 
     def _update_entities(self) -> None:
         for entity in self._entities:
