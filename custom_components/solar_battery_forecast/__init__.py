@@ -18,8 +18,13 @@ async def async_setup(_hass: HomeAssistant, _config: Config) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up this integration using UI."""
 
+    hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
+
     controller = Controller(hass)
+
     hass.data[DOMAIN][entry.entry_id]["controller"] = controller
+
+    await controller.load()
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True

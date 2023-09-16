@@ -1,3 +1,4 @@
+from datetime import timedelta
 from math import floor
 
 import numpy as np
@@ -5,7 +6,7 @@ import pandas as pd
 from statsmodels.tsa.api import STLForecast
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-TRAIN_PERIOD = pd.Timedelta(weeks=4)
+TRAIN_PERIOD = timedelta(weeks=4)
 PREDICTION_PERIOD = pd.DateOffset(days=2)
 
 
@@ -14,8 +15,8 @@ class LoadForecaster:
         self._order = (2, 1, 1)
 
     def predict(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.asfreq(freq="H", method="pad").tail(floor(TRAIN_PERIOD.total_seconds() / 3600))
         df["mean_log"] = np.log(df["mean"])
+        df = df.tail(floor(TRAIN_PERIOD.total_seconds() / 3600))
         model = STLForecast(
             df["mean_log"],
             SARIMAX,
