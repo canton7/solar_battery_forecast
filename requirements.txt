@@ -9,6 +9,7 @@ ruff==0.0.275
 
 statsmodels==0.14.0
 matplotlib==3.7.2
+pandas-stubs # Version should automatically match pandas version
 
 # These are duplicated in .pre-commit-config.yaml
 reorder-python-imports==3.10.0
