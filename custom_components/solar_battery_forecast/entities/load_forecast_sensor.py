@@ -28,7 +28,7 @@ class LoadForecastSensor(EntityMixin, SensorEntity):
         if load_forecast is None:
             return None
 
-        sum_today: float = load_forecast.resample("D").sum()[0]["predicted"]
+        sum_today: float = load_forecast.resample("D").sum().iloc[0]["predicted"]
         return sum_today
 
     @property
