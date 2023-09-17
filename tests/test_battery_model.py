@@ -1,9 +1,9 @@
 import random
 
-from custom_components.solar_battery_forecast.battery_model import Action
-from custom_components.solar_battery_forecast.battery_model import ActionType
-from custom_components.solar_battery_forecast.battery_model import BatteryModel
-from custom_components.solar_battery_forecast.battery_model import TimeSegment
+from custom_components.solar_battery_forecast.brains.battery_model import Action
+from custom_components.solar_battery_forecast.brains.battery_model import ActionType
+from custom_components.solar_battery_forecast.brains.battery_model import BatteryModel
+from custom_components.solar_battery_forecast.brains.battery_model import TimeSegment
 
 
 def test_flux() -> None:

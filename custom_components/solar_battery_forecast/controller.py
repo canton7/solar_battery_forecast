@@ -12,10 +12,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.util import dt
 
-from . import load_forecaster
+from .brains import load_forecaster
+from .brains.load_forecaster import LoadForecaster
 from .entities.entity_controller import EntityController
 from .entities.entity_controller import EntityControllerSubscriber
-from .load_forecaster import LoadForecaster
 
 _LOGGER = logging.getLogger(__name__)
 
