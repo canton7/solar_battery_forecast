@@ -1,13 +1,20 @@
 {
-    "domain": "solar_battery_forecast",
-    "name": "Solar Battery Forecast",
-    "codeowners": ["@canton7"],
-    "config_flow": true,
-    "dependencies": ["energy", "integration"],
-    "documentation": "https://github.com/canton7/solar_battery_forecast",
-    "integration_type": "service",
-    "iot_class": "calculated",
-    "issue_tracker": "https://github.com/canton7/solar_battery_forecast/issues",
-    "requirements": ["statsmodels==0.14.0", "matplotlib==3.7.2"],
-    "version": "0.0.1"
-  }
+  "domain": "solar_battery_forecast",
+  "name": "Solar Battery Forecast",
+  "codeowners": [
+    "@canton7"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "energy",
+    "integration"
+  ],
+  "documentation": "https://github.com/canton7/solar_battery_forecast",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/canton7/solar_battery_forecast/issues",
+  "requirements": [
+    "statsmodels==0.14.0"
+  ],
+  "version": "0.0.1"
+}
