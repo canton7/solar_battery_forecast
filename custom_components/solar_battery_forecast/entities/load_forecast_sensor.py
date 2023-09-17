@@ -37,4 +37,14 @@ class LoadForecastSensor(EntityMixin, SensorEntity):
         if load_forecast is None:
             return None
 
-        return {"forecast": load_forecast.to_json(orient="records", date_format="iso")}
+        return {
+            "forecast": [
+                {
+                    "start": x.Index.isoformat(),
+                    "predicted": x.predicted,
+                    "upper": x.predicted_upper,
+                    "lower": x.predicted_lower,
+                }
+                for x in load_forecast.itertuples()
+            ]
+        }
