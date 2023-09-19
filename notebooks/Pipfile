@@ -16,6 +16,7 @@ snakeviz = "*"
 statsmodels = "*"
 prophet = "*"
 pmdarima = "*"
+tbats = "*"
 
 [dev-packages]
 
