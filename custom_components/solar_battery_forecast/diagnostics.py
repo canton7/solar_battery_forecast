@@ -14,7 +14,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     def serialize(df: pd.DataFrame | None) -> Any:
         if df is None:
             return None
-        return df.to_dict(orient="records")
+        # TODO: This does not include the index
+        return df.to_dict(orient="index")
 
     state = controller.state
     return {
