@@ -1,11 +1,19 @@
 {
-    "image": "mcr.microsoft.com/vscode/devcontainers/python:0-3.10-bullseye",
+    "build": {
+        "dockerfile": "../Dockerfile"
+    },
     "name": "Solar Battery Forecast",
-    "appPort": ["9123:8123"],
-    "postCreateCommand": ".devcontainer/setup",
+    "appPort": [
+        "9123:8123"
+    ],
+    "mounts": [
+        "source=${localWorkspaceFolder}/config,target=/config,type=bind",
+        "source=${localWorkspaceFolder}/custom_components/solar_battery_forecast,target=/config/custom_components/solar_battery_forecast,type=bind",
+    ],
     "containerEnv": {
         "PYTHONPATH": "." // For VS Code's test pane discovery
     },
+    "postCreateCommand": ".devcontainer/setup",
     "customizations": {
         "vscode": {
             "extensions": [

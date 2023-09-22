@@ -4,17 +4,10 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-# Create config dir if not present
-if [[ ! -d "${PWD}/config" ]]; then
-    mkdir -p "${PWD}/config"
-    hass --config "${PWD}/config" --script ensure_config
-fi
+mkdir -p /config/custom_components && touch /config/custom_components/__init__.py
 
 # Set the path to custom_components
-# This lets us have the structure we want <root>/custom_components/integration_blueprint
-# while at the same time have Home Assistant configuration inside <root>/config
-# without resulting to symlinks.
-export PYTHONPATH="${PYTHONPATH}:${PWD}/custom_components"
+export PYTHONPATH="/config/custom_components"
 
 # Start Home Assistant
-hass --config "${PWD}/config" --debug
+hass --config /config --debug
