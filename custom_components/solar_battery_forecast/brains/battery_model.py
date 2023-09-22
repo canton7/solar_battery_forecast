@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Iterable
 from typing import Sequence
 
-from matplotlib import pyplot as plt  # type: ignore
+# from matplotlib import pyplot as plt  # type: ignore
 
 
 @dataclass
@@ -129,22 +129,22 @@ class BatteryModel:
 
         score = round(feed_in_cost, 2) - round(import_cost, 2)
 
-        if debug:
-            size = len(battery_levels)
-            print(f"Feed-in: {feed_in_cost}; import: {import_cost}; total: {score}")
-            plt.plot(range(0, size), battery_levels, marker="o", label="batt")
-            plt.plot(range(0, size), [x.consumption for x in segments], marker="x", label="cons")
-            plt.plot(range(0, size), [x.generation for x in segments], marker="+", label="gen")
-            plt.plot(range(0, size), imports, marker="<", label="gen")
-            plt.plot(range(0, size), exports, marker=">", label="gen")
-            plt.fill_between(
-                range(0, size),
-                [0 if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions],
-                [0 if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions],
-                step="mid",
-                alpha=0.1,
-            )
-            plt.show()
+        # if debug:
+        #     size = len(battery_levels)
+        #     print(f"Feed-in: {feed_in_cost}; import: {import_cost}; total: {score}")
+        #     plt.plot(range(0, size), battery_levels, marker="o", label="batt")
+        #     plt.plot(range(0, size), [x.consumption for x in segments], marker="x", label="cons")
+        #     plt.plot(range(0, size), [x.generation for x in segments], marker="+", label="gen")
+        #     plt.plot(range(0, size), imports, marker="<", label="gen")
+        #     plt.plot(range(0, size), exports, marker=">", label="gen")
+        #     plt.fill_between(
+        #         range(0, size),
+        #         [0 if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions],
+        #         [0 if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions],
+        #         step="mid",
+        #         alpha=0.1,
+        #     )
+        #     plt.show()
 
         # Round to avoid floating-point error saying that one result is better than another, when in fact they're the
         # same
