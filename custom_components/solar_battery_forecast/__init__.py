@@ -3,6 +3,7 @@ import asyncio
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Config
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt
 
 from .const import DOMAIN
 from .controller import Controller
@@ -24,7 +25,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id]["controller"] = controller
 
-    await controller.load()
+    # Don't block this task, as it will block hacs and make it unhappy
+    hass.async_create_task(controller.load(dt.now()))
 
     for platform in PLATFORMS:
         if entry.options.get(platform, True):

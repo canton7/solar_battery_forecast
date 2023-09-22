@@ -45,6 +45,7 @@ class EntityMixin(EntityControllerSubscriber, ModbusEntityProtocol, _ModbusEntit
         """Called when the entity is added to hass"""
         await super().async_added_to_hass()
         self._controller.subscribe(self)
+        self._update()
 
     async def async_will_remove_from_hass(self) -> None:
         """Called when the entity is about to be removed from hass"""
@@ -52,7 +53,11 @@ class EntityMixin(EntityControllerSubscriber, ModbusEntityProtocol, _ModbusEntit
         await super().async_will_remove_from_hass()
 
     def controller_updated(self) -> None:
+        self._update()
         self.schedule_update_ha_state()
+
+    def _update(self) -> None:
+        pass
 
     @property
     def should_poll(self) -> bool:

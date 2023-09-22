@@ -4,14 +4,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .controller import Controller
-from .entities.load_forecast_sensor import LoadForecastSensor
+from .entities.load_forecast_sensors import InitialLoadForecastSensor
+from .entities.load_forecast_sensors import LoadForecastSensor
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_devices: AddEntitiesCallback
-) -> None:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_devices: AddEntitiesCallback) -> None:
     controller: Controller = hass.data[DOMAIN][entry.entry_id]["controller"]
 
-    async_add_devices([
-        LoadForecastSensor(controller)
-    ])
+    async_add_devices([LoadForecastSensor(controller), InitialLoadForecastSensor(controller)])
