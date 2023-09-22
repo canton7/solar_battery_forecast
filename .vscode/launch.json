@@ -12,8 +12,8 @@
       "justMyCode": false,
       "pathMappings": [
         {
-          "localRoot": "${workspaceFolder}",
-          "remoteRoot": "."
+          "localRoot": "${workspaceFolder}/custom_components/solar_battery_forecast",
+          "remoteRoot": "/config/custom_components/solar_battery_forecast"
         }
       ]
     }

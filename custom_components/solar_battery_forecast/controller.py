@@ -1,23 +1,22 @@
 import logging
 from datetime import datetime
-from datetime import timezone
 from typing import Callable
 
-import numpy as np
 import pandas as pd
-from homeassistant.components import recorder
-from homeassistant.components.recorder import statistics
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_change
-from homeassistant.util import dt
 
 from .brains import load_forecaster
 from .brains.load_forecaster import LoadForecaster
+from .data_source import DataSource
 from .entities.entity_controller import EntityController
 from .entities.entity_controller import EntityControllerSubscriber
+from .main_config import MainConfig
 
 _LOGGER = logging.getLogger(__name__)
+
+CONFIG = MainConfig(load_power_sum_sensor="sensor.load_energy_today")
 
 
 class Controller(EntityController):
@@ -28,8 +27,8 @@ class Controller(EntityController):
         self._entities: set[EntityControllerSubscriber] = set()
         self._unload: list[Callable[[], None]] = []
 
+        self._data_source = DataSource(hass, CONFIG)
         self._load_forecaster = LoadForecaster()
-        self._load_power_sensor = "sensor.load_power"
 
         self._load_forecast: pd.DataFrame | None = None
 
@@ -52,33 +51,10 @@ class Controller(EntityController):
         self._update_entities()
 
     async def _create_load_forecast(self) -> pd.DataFrame | None:
-        start = dt.now(timezone.utc) - load_forecaster.TRAIN_PERIOD
+        df = await self._data_source.load_sensor_history(load_forecaster.TRAIN_PERIOD)
 
-        stats = await recorder.get_instance(self._hass).async_add_executor_job(
-            statistics.statistics_during_period,
-            self._hass,
-            start,
-            None,
-            {self._load_power_sensor},
-            "hour",
-            None,
-            {"mean"},
-        )
-
-        if self._load_power_sensor not in stats:
-            _LOGGER.warning("Unable to find history for sensor '%s'. Is this sensor correct?", self._load_power_sensor)
+        if df is None:
             return None
-
-        records = (
-            {
-                "start": dt.as_local(dt.utc_from_timestamp(x["start"])),
-                "mean": x["mean"] if x["mean"] not in (None, "", "unknown", "unavailable") else np.nan,
-            }
-            for x in stats[self._load_power_sensor]
-        )
-        df = pd.DataFrame.from_records(records, index="start")
-        df = df.asfreq(freq="H")
-        df.interpolate(inplace=True)
 
         forecast = self._load_forecaster.predict(df)
         return forecast
