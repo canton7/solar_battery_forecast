@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 from typing import Any
@@ -19,7 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 class DataSource:
     def __init__(self, hass: HomeAssistant, config: MainConfig) -> None:
         self._hass = hass
-        self._load_power_sensor = config["load_power_sum_sensor"]
+        self._load_power_sum_sensor = config["load_power_sum_sensor"]
 
     async def load_sensor_history(self, period: timedelta) -> pd.DataFrame | None:
         now = dt.now(timezone.utc)
@@ -35,7 +36,7 @@ class DataSource:
             self._hass,
             start - timedelta(hours=1),
             None,
-            {self._load_power_sensor},
+            {self._load_power_sum_sensor},
             "hour",
             None,
             {"sum"},
@@ -43,8 +44,11 @@ class DataSource:
 
         df: pd.DataFrame | None = None
 
-        if self._load_power_sensor in stats:
-            energy_sum_stats = stats[self._load_power_sensor]
+        this_hour = datetime(now.year, now.month, now.day, now.hour, tzinfo=timezone.utc)
+        start_of_last_hour = this_hour - timedelta(hours=1)
+
+        if self._load_power_sum_sensor in stats:
+            energy_sum_stats = stats[self._load_power_sum_sensor]
 
             def get_records() -> Iterable[dict[str, Any]]:
                 prev_sum = energy_sum_stats[0]["sum"]
@@ -71,11 +75,14 @@ class DataSource:
                         prev_sum = stat_sum
 
             df = pd.DataFrame.from_records(get_records(), index="start")
-            df = df.asfreq(freq="H")
+            # Make sure that any missing values at the end are filled with nan
+            df = df.reindex(
+                pd.date_range(start=df.iloc[0].name, end=dt.as_local(start_of_last_hour), freq="H"),  # type: ignore
+                fill_value=np.nan,
+            )
 
         # This might not include everything
-        # this_hour = datetime(now.year, now.month, now.day, now.hour, tzinfo=timezone.utc)
-        # # start_of_last_hour = this_hour - timedelta(hours=1)
+
         # end_of_stats = (
         #     dt.utc_from_timestamp(stats[self._load_power_sensor][-1]["end"])
         #     if self._load_power_sensor in stats and len(stats[self._load_power_sensor]) > 0
@@ -97,7 +104,10 @@ class DataSource:
         #     print(hist)
 
         if df is None:
-            _LOGGER.warning("Unable to find history for sensor '%s'. Is this sensor correct?", self._load_power_sensor)
+            _LOGGER.warning(
+                "Unable to find history for sensor '%s'. Is this sensor correct?",
+                self._load_power_sum_sensor,
+            )
             return None
 
         return df

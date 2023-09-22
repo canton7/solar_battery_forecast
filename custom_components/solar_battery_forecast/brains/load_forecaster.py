@@ -22,10 +22,10 @@ class LoadForecaster:
             _LOGGER.warning(f"Unable to provide a forecast for {len(df)} hours of data. Please wait")
             return None
 
-        df["mean_log"] = np.log(df["mean"])
+        df["value_log"] = np.log(df["value"])
         df = df.tail(floor(TRAIN_PERIOD.total_seconds() / 3600))
         model = STLForecast(
-            df["mean_log"],
+            df["value_log"],
             SARIMAX,
             model_kwargs={"order": self._order, "enforce_invertibility": False, "enforce_stationarity": False},
         )
@@ -33,11 +33,11 @@ class LoadForecaster:
         model_prediction = results.get_prediction(
             start=df.iloc[-1].name + pd.DateOffset(hours=1), end=df.iloc[-1].name + PREDICTION_PERIOD  # type: ignore
         )
-        predicted_mean: pd.DataFrame = np.exp(model_prediction.predicted_mean.rename("predicted").to_frame())
+        predicted_value: pd.DataFrame = np.exp(model_prediction.predicted_mean.rename("predicted").to_frame())
         confidence_interval: pd.DataFrame = np.exp(
             model_prediction.conf_int(alpha=0.5).rename(
                 columns={"upper": "predicted_upper", "lower": "predicted_lower"}
             )
         )
-        prediction = predicted_mean.combine_first(confidence_interval)
+        prediction = predicted_value.combine_first(confidence_interval)
         return prediction
