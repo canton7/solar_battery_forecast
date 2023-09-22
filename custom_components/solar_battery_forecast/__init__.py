@@ -1,7 +1,12 @@
 import asyncio
+import logging
 
+from homeassistant import loader
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 from homeassistant.core import Config
+from homeassistant.core import CoreState
+from homeassistant.core import Event
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt
 
@@ -9,6 +14,8 @@ from .const import DOMAIN
 from .controller import Controller
 
 PLATFORMS: list[str] = ["sensor"]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(_hass: HomeAssistant, _config: Config) -> bool:
@@ -25,8 +32,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id]["controller"] = controller
 
-    # Don't block this task, as it will block hacs and make it unhappy
-    hass.async_create_task(controller.load(dt.now()))
+    version = ""
+    try:
+        integration = await loader.async_get_integration(hass, DOMAIN)
+        version = str(integration.version)
+        _LOGGER.info(f"{DOMAIN} version: {version}")
+    except loader.IntegrationNotFound:
+        pass
+
+    # We depend on other integrations. Give them a chance to start first
+    if hass.state in [CoreState.not_running, CoreState.starting]:
+
+        async def run(_event: Event) -> None:
+            await controller.load(dt.now())
+
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, run)
+    else:
+        hass.async_create_task(controller.load(dt.now()))
 
     for platform in PLATFORMS:
         if entry.options.get(platform, True):

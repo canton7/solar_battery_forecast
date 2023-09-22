@@ -164,7 +164,7 @@ class BatteryModel:
         return x > y
 
     def shotgun_hillclimb(self, segments: list[TimeSegment], initial_battery: float) -> list[Action]:
-        visited_actions_hashes = set()
+        # visited_actions_hashes = set()
         charge_set = [False, True]
         best_result_ever: float | None = None
         best_actions_ever: list[Action] = []

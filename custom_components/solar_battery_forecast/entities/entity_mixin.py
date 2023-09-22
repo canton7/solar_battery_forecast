@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 from typing import Protocol
 
 from homeassistant.const import Platform
+from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity import Entity
 
@@ -35,10 +36,11 @@ class EntityMixin(EntityControllerSubscriber, ModbusEntityProtocol, _ModbusEntit
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(  # type: ignore
+        return DeviceInfo(
             identifiers={(DOMAIN, self._controller.config_entry.entry_id)},
             name="Solar Battery Forecast",
             model=None,
+            entry_type=DeviceEntryType.SERVICE,
         )
 
     async def async_added_to_hass(self) -> None:

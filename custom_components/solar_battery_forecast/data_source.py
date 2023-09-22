@@ -21,9 +21,18 @@ class DataSource:
     def __init__(self, hass: HomeAssistant, config: MainConfig) -> None:
         self._hass = hass
         self._load_power_sum_sensor = config["load_power_sum_sensor"]
+        self._soc_sensor = config["soc_sensor"]
+        self._solar_forecast_sensors = [
+            config["solar_forecast_today_sensor"],
+            config["solar_forecast_tomorrow_sensor"],
+            config["solar_forecast_d3_sensor"],
+        ]
+        self._import_rate_sensor = config["electricity_import_rate_sensor"]
+        self._feed_in_rate_sensor = config["electricity_feed_in_rate_sensor"]
 
-    async def load_sensor_history(self, period: timedelta) -> pd.DataFrame | None:
-        now = dt.now(timezone.utc)
+    async def load_sensor_history(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
+        now_utc = dt.as_utc(now)
+        this_hour_utc = datetime(now_utc.year, now_utc.month, now_utc.day, now_utc.hour, tzinfo=timezone.utc)
         start = now - period
 
         r = recorder.get_instance(self._hass)
@@ -44,8 +53,7 @@ class DataSource:
 
         df: pd.DataFrame | None = None
 
-        this_hour = datetime(now.year, now.month, now.day, now.hour, tzinfo=timezone.utc)
-        start_of_last_hour = this_hour - timedelta(hours=1)
+        start_of_last_hour = this_hour_utc - timedelta(hours=1)
 
         if self._load_power_sum_sensor in stats:
             energy_sum_stats = stats[self._load_power_sum_sensor]
@@ -111,3 +119,74 @@ class DataSource:
             return None
 
         return df
+
+    def get_soc(self) -> float | None:
+        state = self._hass.states.get(self._soc_sensor)
+        if state is None:
+            _LOGGER.warning("SoC sensor '%s' is disabled or not yet loaded", self._soc_sensor)
+            return None
+        str_value = state.state
+        if str_value in [None, "unknown", "unavailable"]:
+            _LOGGER.warning("SoC sensor '%s' has value '%s'", self._soc_sensor, str_value)
+            return None
+        try:
+            float_value = float(str_value)
+            return float_value
+        except ValueError:
+            _LOGGER.warning("SoC sensor '%s' has non-floating-point value '%s'", self._soc_sensor, str_value)
+            return None
+
+    def load_solar_forecast(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
+        this_hour = datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo)
+
+        periods = []
+        for forecast_sensor in self._solar_forecast_sensors:
+            state = self._hass.states.get(forecast_sensor)
+            if state is None:
+                _LOGGER.warning("Solar forecast sensor '%s' is disabled or not yet loaded", forecast_sensor)
+                return None
+            forecast = state.attributes.get("detailedHourly", None)
+            if forecast is None:
+                _LOGGER.warning("Solar forecast sensor '%s' has no attribute 'detailedHourly", forecast_sensor)
+                return None
+            periods.extend(forecast)
+
+        df = pd.DataFrame.from_records(periods, index="period_start")
+        df.index.rename("start", inplace=True)
+        df = df.loc[this_hour : this_hour + period]  # type: ignore
+        return df
+
+    def load_electricity_rates(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
+        this_hour_utc = dt.as_utc(datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo))
+
+        def load(entity_id: str, name: str, column: str) -> pd.DataFrame | None:
+            state = self._hass.states.get(entity_id)
+            if state is None:
+                # Disabled
+                _LOGGER.warning("%s rate sensor '%s' is disabled or not yet loaded", name, entity_id)
+                return None
+            rates = state.attributes.get("all_rates", None)
+            if rates is None:
+                _LOGGER.warning("%s rate sensor '%s' has no attribute 'all_rates", name, entity_id)
+                return None
+
+            df = pd.DataFrame.from_records(
+                rates, index="valid_from", exclude=["valid_to", "is_capped", "is_intelligent_adjusted"]
+            ).rename(columns={"value_inc_vat": column})
+            df.index.rename("start", inplace=True)
+            # TODO: Forecast might not be long enough
+            df = df.loc[this_hour_utc : this_hour_utc + period]  # type: ignore
+            # We currently work with hourly data across the board. If we need to combine two half-hours with different
+            # rates, take the max
+            df = df.resample("H").sum()
+
+            return df
+
+        feed_in_rates = load(self._feed_in_rate_sensor, "Feed-in", "feed_in_tariff")
+        import_rates = load(self._import_rate_sensor, "Import", "import_tariff")
+
+        if feed_in_rates is None or import_rates is None:
+            return None
+
+        combined = feed_in_rates.combine_first(import_rates)
+        return combined

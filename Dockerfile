@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/vscode/devcontainers/python:0-3.10-bullseye
+FROM mcr.microsoft.com/vscode/devcontainers/python:0-3.11-bullseye
 
 COPY requirements.txt .
 RUN python3 -m pip install --requirement requirements.txt && \

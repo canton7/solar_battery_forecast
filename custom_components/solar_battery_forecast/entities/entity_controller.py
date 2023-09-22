@@ -17,6 +17,8 @@ class EntityControllerState:
     load_today: pd.DataFrame | None = None
     load_forecast: pd.DataFrame | None = None
     initial_load_forecast: pd.DataFrame | None = None
+    solar_forecast: pd.DataFrame | None = None
+    electricity_rates: pd.DataFrame | None = None
 
 
 class EntityController(ABC):

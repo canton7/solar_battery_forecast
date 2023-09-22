@@ -8,7 +8,7 @@ from statsmodels.tsa.api import STLForecast
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 TRAIN_PERIOD = timedelta(weeks=4)
-PREDICTION_PERIOD = pd.DateOffset(days=2)
+PREDICTION_PERIOD = timedelta(days=2)
 
 _LOGGER = logging.getLogger(__name__)
 
