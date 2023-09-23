@@ -60,6 +60,13 @@ class BatteryModel:
     def run(
         self, segments: list[TimeSegment], actions: Sequence[Action | None], initial_battery: float, debug: bool = False
     ) -> float:
+        def clamp(val: float, lower: float, upper: float) -> float:
+            if val < lower:
+                return lower
+            if val > upper:
+                return upper
+            return val
+
         self.num_runs += 1
         battery_level = initial_battery
         feed_in_cost = 0.0
@@ -82,13 +89,11 @@ class BatteryModel:
 
             if action.charge:
                 # I don't actually know, but... I assume that solar replaces grid up to the charge rate
-                solar_to_battery = max(0, min(BATTERY_CAPACITY * action.max_soc - battery_level, segment.generation))
-                grid_to_battery_dc = max(
+                solar_to_battery = clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, segment.generation)
+                grid_to_battery_dc = clamp(
+                    BATTERY_CAPACITY * action.max_soc - battery_level - solar_to_battery,
                     0,
-                    min(
-                        BATTERY_CAPACITY * action.max_soc - battery_level - solar_to_battery,
-                        BATTERY_CHARGE_AMOUNT_PER_SEGMENT,
-                    ),
+                    BATTERY_CHARGE_AMOUNT_PER_SEGMENT,
                 )
                 excess_solar_ac = (segment.generation - solar_to_battery) * DC_TO_AC_EFFICIENCY
                 # Doesn't consider inverter limits
@@ -101,17 +106,14 @@ class BatteryModel:
                 # available
                 if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY:
                     excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
-                    solar_to_battery = max(0.0, min(BATTERY_CAPACITY * action.max_soc - battery_level, excess_solar_dc))
+                    solar_to_battery = clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, excess_solar_dc)
                     solar_to_grid = (
                         min(EXPORT_LIMIT_PER_SEGMENT_DC, excess_solar_dc - solar_to_battery) * DC_TO_AC_EFFICIENCY
                     )
                 else:
                     required_energy_ac = segment.consumption - segment.generation * DC_TO_AC_EFFICIENCY
-                    battery_to_load = max(
-                        0.0,
-                        min(
-                            battery_level - BATTERY_CAPACITY * action.min_soc, required_energy_ac / DC_TO_AC_EFFICIENCY
-                        ),
+                    battery_to_load = clamp(
+                        battery_level - BATTERY_CAPACITY * action.min_soc, 0, required_energy_ac / DC_TO_AC_EFFICIENCY
                     )
                     grid_to_load = required_energy_ac - battery_to_load * DC_TO_AC_EFFICIENCY
 
