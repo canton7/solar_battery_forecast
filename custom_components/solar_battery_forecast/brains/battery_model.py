@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from typing import Iterable
 from typing import Sequence
 
+import pandas as pd
+
 # from matplotlib import pyplot as plt  # type: ignore
 
 
@@ -58,8 +60,11 @@ class BatteryModel:
         self.num_runs = 0
 
     def run(
-        self, segments: list[TimeSegment], actions: Sequence[Action | None], initial_battery: float, debug: bool = False
+        self, segments: pd.DataFrame, actions: Sequence[Action | None], initial_battery: float, debug: bool = False
     ) -> float:
+        """
+        segments: generation, consumption, feed_in_tariff, export_tariff
+        """
         self.num_runs += 1
         battery_level = initial_battery
         feed_in_cost = 0.0
@@ -71,7 +76,7 @@ class BatteryModel:
         imports = []
         exports = []
 
-        for segment, action_change in zip(segments, actions, strict=True):
+        for i, action_change in enumerate(actions):
             if action_change is not None:
                 action = action_change
             solar_to_battery = 0.0
@@ -82,7 +87,9 @@ class BatteryModel:
 
             if action.charge:
                 # I don't actually know, but... I assume that solar replaces grid up to the charge rate
-                solar_to_battery = max(0, min(BATTERY_CAPACITY * action.max_soc - battery_level, segment.generation))
+                solar_to_battery = max(
+                    0, min(BATTERY_CAPACITY * action.max_soc - battery_level, segments.loc[i, "generation"])
+                )
                 grid_to_battery_dc = max(
                     0,
                     min(
@@ -90,23 +97,27 @@ class BatteryModel:
                         BATTERY_CHARGE_AMOUNT_PER_SEGMENT,
                     ),
                 )
-                excess_solar_ac = (segment.generation - solar_to_battery) * DC_TO_AC_EFFICIENCY
+                excess_solar_ac = (segments.loc[i, "generation"] - solar_to_battery) * DC_TO_AC_EFFICIENCY
                 # Doesn't consider inverter limits
-                if excess_solar_ac > segment.consumption:
-                    solar_to_grid = min(EXPORT_LIMIT_PER_SEGMENT, excess_solar_ac - segment.consumption)
+                if excess_solar_ac > segments.loc[i, "consumption"]:
+                    solar_to_grid = min(EXPORT_LIMIT_PER_SEGMENT, excess_solar_ac - segments.loc[i, "consumption"])
                 else:
-                    grid_to_load = segment.consumption - excess_solar_ac
+                    grid_to_load = segments.loc[i, "consumption"] - excess_solar_ac
             else:
                 # If generation can cover consumption, excess goes into battery. Else excess comes from battery if
                 # available
-                if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY:
-                    excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
+                if segments.loc[i, "generation"] > segments.loc[i, "consumption"] / DC_TO_AC_EFFICIENCY:
+                    excess_solar_dc = (
+                        segments.loc[i, "generation"] - segments.loc[i, "consumption"] / DC_TO_AC_EFFICIENCY
+                    )
                     solar_to_battery = max(0.0, min(BATTERY_CAPACITY * action.max_soc - battery_level, excess_solar_dc))
                     solar_to_grid = (
                         min(EXPORT_LIMIT_PER_SEGMENT_DC, excess_solar_dc - solar_to_battery) * DC_TO_AC_EFFICIENCY
                     )
                 else:
-                    required_energy_ac = segment.consumption - segment.generation * DC_TO_AC_EFFICIENCY
+                    required_energy_ac = (
+                        segments.loc[i, "consumption"] - segments.loc[i, "generation"] * DC_TO_AC_EFFICIENCY
+                    )
                     battery_to_load = max(
                         0.0,
                         min(
@@ -119,8 +130,8 @@ class BatteryModel:
             battery_level += battery_change
             assert battery_level >= 0
 
-            feed_in_cost += solar_to_grid * segment.feed_in_tariff
-            import_cost += (grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY) * segment.import_tariff
+            feed_in_cost += solar_to_grid * segments.loc[i, "feed_in_tariff"]
+            import_cost += (grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY) * segments.loc[i, "import_tariff"]
 
             if debug:
                 imports.append(grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY)
@@ -163,7 +174,7 @@ class BatteryModel:
             return False
         return x > y
 
-    def shotgun_hillclimb(self, segments: list[TimeSegment], initial_battery: float) -> list[Action]:
+    def shotgun_hillclimb(self, segments: pd.DataFrame, initial_battery: float) -> list[Action]:
         # visited_actions_hashes = set()
         charge_set = [False, True]
         best_result_ever: float | None = None
@@ -227,7 +238,8 @@ class BatteryModel:
                         for new_min_soc_percent in (
                             (MIN_SOC_PERMITTED_PERCENT,)
                             if new_charge
-                            or segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
+                            or segments.loc[slot, "generation"]
+                            > segments.loc[slot, "consumption"] / DC_TO_AC_EFFICIENCY
                             else (MIN_SOC_PERMITTED_PERCENT, 100)
                         ):
                             action.min_soc = new_min_soc_percent / 100
@@ -238,7 +250,10 @@ class BatteryModel:
                             new_max_soc_percents: Iterable[int]
                             if new_charge:
                                 new_max_soc_percents = range(new_min_soc_percent, 101, SOC_STEP_PERCENT)
-                            elif segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY:
+                            elif (
+                                segments.loc[slot, "generation"]
+                                > segments.loc[slot, "consumption"] / DC_TO_AC_EFFICIENCY
+                            ):
                                 new_max_soc_percents = (new_min_soc_percent, 100)
                             else:
                                 new_max_soc_percents = (100,)
@@ -449,7 +464,7 @@ class BatteryModel:
 
     def optimize_min_max_soc(
         self,
-        segments: list[TimeSegment],
+        segments: pd.DataFrame,
         actions: Sequence[Action],
         best_result_ever: float,
         initial_battery: float,
