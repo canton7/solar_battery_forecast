@@ -52,13 +52,21 @@ INITIAL_ACTION = Action(charge=False, min_soc=MIN_SOC_PERMITTED_PERCENT / 100, m
 
 
 @dataclass
-class RunOutputs:
-    battery_levels: list[float] = field(default_factory=list)
-    imports: list[float] = field(default_factory=list)
-    exports: list[float] = field(default_factory=list)
-    feed_in_cost: float = 0.0
-    import_cost: float = 0.0
-    score: float = 0.0
+class RunOutputSegment:
+    battery_level: float
+    battery_soc: float
+    feed_in_kwh: float
+    import_kwh: float
+    feed_in_cost: float
+    cumulative_feed_in_cost: float
+    import_cost: float
+    cumulative_import_cost: float
+    cumulative_score: float
+
+
+@dataclass
+class RunOutput:
+    segments: list[RunOutputSegment] = field(default_factory=list)
 
 
 class BatteryModel:
@@ -70,16 +78,18 @@ class BatteryModel:
     def plot(self, segments: list[TimeSegment], actions: Sequence[Action | None]) -> None:
         from matplotlib import pyplot as plt  # type: ignore
 
-        outputs = RunOutputs()
-        self.run(segments, actions, outputs)
+        output = RunOutput()
+        self.run(segments, actions, output)
 
-        size = len(outputs.battery_levels)
-        print(f"Feed-in: {outputs.feed_in_cost}; import: {outputs.import_cost}; total: {outputs.score}")
-        plt.plot(range(0, size), outputs.battery_levels, marker="o", label="batt")
+        size = len(output.segments)
+        print(
+            f"Feed-in: {output.segments[-1].cumulative_feed_in_cost}; import: {output.segments[-1].cumulative_import_cost}; total: {output.segments[-1].cumulative_score}"
+        )
+        plt.plot(range(0, size), [x.battery_level for x in output.segments], marker="o", label="batt")
         plt.plot(range(0, size), [x.consumption for x in segments], marker="x", label="cons")
         plt.plot(range(0, size), [x.generation for x in segments], marker="+", label="gen")
-        plt.plot(range(0, size), outputs.imports, marker="<", label="gen")
-        plt.plot(range(0, size), outputs.exports, marker=">", label="gen")
+        plt.plot(range(0, size), [x.import_kwh for x in output.segments], marker="<", label="gen")
+        plt.plot(range(0, size), [x.feed_in_kwh for x in output.segments], marker=">", label="gen")
         plt.fill_between(
             range(0, size),
             [0 if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions],
@@ -93,7 +103,7 @@ class BatteryModel:
         self,
         segments: list[TimeSegment],
         actions: Sequence[Action | None],
-        outputs: RunOutputs | None = None,
+        outputs: RunOutput | None = None,
     ) -> float:
         def clamp(val: float, lower: float, upper: float) -> float:
             if val < lower:
@@ -151,20 +161,28 @@ class BatteryModel:
             battery_level += battery_change
             assert battery_level >= 0
 
-            feed_in_cost += solar_to_grid * segment.feed_in_tariff
-            import_cost += (grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY) * segment.import_tariff
+            this_feed_in_cost = solar_to_grid * segment.feed_in_tariff
+            feed_in_cost += this_feed_in_cost
+            import_amount = grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY
+            this_import_cost = import_amount * segment.import_tariff
+            import_cost += this_import_cost
 
             if outputs is not None:
-                outputs.imports.append(grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY)
-                outputs.exports.append(solar_to_grid)
-                outputs.battery_levels.append(battery_level)
+                outputs.segments.append(
+                    RunOutputSegment(
+                        battery_level=round(battery_level, 2),
+                        battery_soc=round((battery_level / BATTERY_CAPACITY) * 100),
+                        feed_in_kwh=round(solar_to_grid, 2),
+                        import_kwh=round(import_amount, 2),
+                        feed_in_cost=round(this_feed_in_cost, 2),
+                        cumulative_feed_in_cost=round(feed_in_cost, 2),
+                        import_cost=round(this_import_cost, 2),
+                        cumulative_import_cost=round(import_cost, 2),
+                        cumulative_score=round(feed_in_cost, 2) - round(import_cost, 2),
+                    )
+                )
 
         score = round(feed_in_cost, 2) - round(import_cost, 2)
-
-        if outputs is not None:
-            outputs.feed_in_cost = feed_in_cost
-            outputs.import_cost = import_cost
-            outputs.score = score
 
         # Round to avoid floating-point error saying that one result is better than another, when in fact they're the
         # same
@@ -183,7 +201,7 @@ class BatteryModel:
             return False
         return x > y
 
-    def shotgun_hillclimb(self, segments: list[TimeSegment]) -> tuple[list[Action], RunOutputs]:
+    def shotgun_hillclimb(self, segments: list[TimeSegment]) -> tuple[list[Action], RunOutput]:
         # visited_actions_hashes = set()
         charge_set = [False, True]
         best_result_ever: float | None = None
@@ -468,7 +486,7 @@ class BatteryModel:
 
             print(f"Number of runs: {self.num_runs}")
 
-        outputs = RunOutputs()
+        outputs = RunOutput()
         self.run(segments, best_actions_ever, outputs)
         return best_actions_ever[:24], outputs
 
