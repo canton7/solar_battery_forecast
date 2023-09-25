@@ -36,7 +36,7 @@ class Controller(EntityController):
         async def _refresh(_datetime: datetime) -> None:
             await self.load()
 
-        self._unload.append(async_track_time_change(self._hass, _refresh, minute=5, second=0))
+        self._unload.append(async_track_time_change(self._hass, _refresh, minute=0, second=0))
 
     @property
     def load_forecast(self) -> pd.DataFrame | None:
