@@ -14,7 +14,9 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     def serialize(df: pd.DataFrame | None) -> Any:
         if df is None:
             return None
-        # TODO: This does not include the index
+        # Annoyingly, to_dict leads Timestamp object, which can't be json'd by default
+        if isinstance(df.index, pd.DatetimeIndex):
+            return {index.isoformat(): series.to_dict() for index, series in df.iterrows()}  # type: ignore
         return df.to_dict(orient="index")
 
     state = controller.state
