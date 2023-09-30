@@ -83,7 +83,8 @@ class BatteryModel:
 
         size = len(output.segments)
         print(
-            f"Feed-in: {output.segments[-1].cumulative_feed_in_cost}; import: {output.segments[-1].cumulative_import_cost}; total: {output.segments[-1].cumulative_score}"
+            f"Feed-in: {output.segments[-1].cumulative_feed_in_cost}; import: "
+            f"{output.segments[-1].cumulative_import_cost}; total: {output.segments[-1].cumulative_score}"
         )
         plt.plot(range(0, size), [x.battery_level for x in output.segments], marker="o", label="batt")
         plt.plot(range(0, size), [x.consumption for x in segments], marker="x", label="cons")
