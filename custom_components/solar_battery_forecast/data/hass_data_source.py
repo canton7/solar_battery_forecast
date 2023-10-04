@@ -12,12 +12,13 @@ from homeassistant.components.recorder import statistics
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt
 
-from .main_config import MainConfig
+from ..main_config import MainConfig
+from .data_source import DataSource
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class DataSource:
+class HassDataSource(DataSource):
     def __init__(self, hass: HomeAssistant, config: MainConfig) -> None:
         self._hass = hass
         self._load_power_sum_sensor = config["load_power_sum_sensor"]
@@ -150,6 +151,9 @@ class DataSource:
                 _LOGGER.warning("Solar forecast sensor '%s' has no attribute 'detailedHourly", forecast_sensor)
                 return None
             periods.extend(forecast)
+
+        if len(periods) == 0:
+            return None
 
         df = pd.DataFrame.from_records(periods, index="period_start")
         df.index.rename("start", inplace=True)

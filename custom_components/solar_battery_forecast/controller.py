@@ -13,7 +13,8 @@ from .brains.battery_model import BATTERY_CAPACITY
 from .brains.battery_model import BatteryModel
 from .brains.battery_model import TimeSegment
 from .brains.load_forecaster import LoadForecaster
-from .data_source import DataSource
+from .data.data_source import DataSource
+from .data.hass_data_source import HassDataSource
 from .entities.entity_controller import EntityController
 from .entities.entity_controller import EntityControllerState
 from .entities.entity_controller import EntityControllerSubscriber
@@ -40,7 +41,7 @@ class Controller(EntityController):
         self._entities: set[EntityControllerSubscriber] = set()
         self._unload: list[Callable[[], None]] = []
 
-        self._data_source = DataSource(hass, CONFIG)
+        self.data_source: DataSource = HassDataSource(hass, CONFIG)
         self._load_forecaster = LoadForecaster()
 
         self._state = EntityControllerState()
@@ -49,9 +50,7 @@ class Controller(EntityController):
             # Create a new initial forecast at midnight
             await self.load(datetime)
 
-        self._unload.append(
-            async_track_time_change(self._hass, _refresh, minute=5, second=0)
-        )
+        self._unload.append(async_track_time_change(self._hass, _refresh, minute=5, second=0))
 
     @property
     def state(self) -> EntityControllerState:
@@ -64,22 +63,17 @@ class Controller(EntityController):
     async def load(self, now: datetime) -> None:
         _LOGGER.info("Reloading forecasts")
         now = dt.as_local(now)
+        self._state.last_update = now
         await self._create_load_forecast(now)
-        self.state.solar_forecast = self._data_source.load_solar_forecast(
-            now, load_forecaster.PREDICTION_PERIOD
-        )
-        self.state.electricity_rates = self._data_source.load_electricity_rates(
-            now, load_forecaster.PREDICTION_PERIOD
-        )
+        self.state.solar_forecast = self.data_source.load_solar_forecast(now, load_forecaster.PREDICTION_PERIOD)
+        self.state.electricity_rates = self.data_source.load_electricity_rates(now, load_forecaster.PREDICTION_PERIOD)
         await self._run_model(now)
         self._update_entities()
 
     async def _create_load_forecast(self, now: datetime) -> None:
         midnight = datetime(now.year, now.month, now.day, tzinfo=now.tzinfo)
 
-        load_history = await self._data_source.load_sensor_history(
-            now, load_forecaster.TRAIN_PERIOD
-        )
+        load_history = await self.data_source.load_sensor_history(now, load_forecaster.TRAIN_PERIOD)
 
         self._state.load_today = None
         self._state.load_forecast = None
@@ -97,10 +91,8 @@ class Controller(EntityController):
             elif self._state.initial_load_forecast is None:
                 # If we never stored an initial forecast, re-calculate one from data up to midnight
                 load_history_to_midnight = load_history.loc[: midnight - timedelta(hours=1)].copy()  # type: ignore
-                self._state.initial_load_forecast = (
-                    await self._hass.async_add_executor_job(
-                        self._load_forecaster.predict, load_history_to_midnight
-                    )
+                self._state.initial_load_forecast = await self._hass.async_add_executor_job(
+                    self._load_forecaster.predict, load_history_to_midnight
                 )
 
     async def _run_model(self, now: datetime) -> None:
@@ -108,7 +100,7 @@ class Controller(EntityController):
         start = datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo)
 
         # TODO: This probably wants to be soc at the start of the hour, in case we're run at a different point?
-        soc = self._data_source.get_soc()
+        soc = self.data_source.get_soc()
         if (
             soc is None
             or self._state.electricity_rates is None
@@ -117,9 +109,9 @@ class Controller(EntityController):
         ):
             return
 
-        df = self._state.electricity_rates.combine_first(
-            self._state.load_forecast
-        ).combine_first(self._state.solar_forecast)
+        df = self._state.electricity_rates.combine_first(self._state.load_forecast).combine_first(
+            self._state.solar_forecast
+        )
         df = df[start : start + load_forecaster.PREDICTION_PERIOD]  # type: ignore
 
         # If there's missing data, backfill from 24h prior
@@ -140,9 +132,7 @@ class Controller(EntityController):
 
         initial_battery = soc * BATTERY_CAPACITY / 100
         battery_model = BatteryModel(initial_battery=initial_battery)
-        actions, outputs = await self._hass.async_add_executor_job(
-            battery_model.shotgun_hillclimb, segments
-        )
+        actions, outputs = await self._hass.async_add_executor_job(battery_model.shotgun_hillclimb, segments)
         _LOGGER.info(actions)
         _LOGGER.info(outputs)
 

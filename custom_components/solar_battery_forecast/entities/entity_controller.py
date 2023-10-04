@@ -1,6 +1,7 @@
 from abc import ABC
 from abc import abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 
 import pandas as pd
 from homeassistant.config_entries import ConfigEntry
@@ -14,6 +15,7 @@ class EntityControllerSubscriber(ABC):
 
 @dataclass
 class EntityControllerState:
+    last_update: datetime | None = None
     load_today: pd.DataFrame | None = None
     load_forecast: pd.DataFrame | None = None
     initial_load_forecast: pd.DataFrame | None = None
