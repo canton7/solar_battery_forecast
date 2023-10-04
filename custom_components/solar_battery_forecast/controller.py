@@ -3,6 +3,7 @@ from datetime import datetime
 from datetime import timedelta
 from typing import Callable
 
+import pandas as pd
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_change
@@ -107,6 +108,8 @@ class Controller(EntityController):
             or self._state.load_forecast is None
             or self._state.solar_forecast is None
         ):
+            self._state.current_action = None
+            self._state.battery_forecast = None
             return
 
         df = self._state.electricity_rates.combine_first(self._state.load_forecast).combine_first(
@@ -133,8 +136,8 @@ class Controller(EntityController):
         initial_battery = soc * BATTERY_CAPACITY / 100
         battery_model = BatteryModel(initial_battery=initial_battery)
         actions, outputs = await self._hass.async_add_executor_job(battery_model.shotgun_hillclimb, segments)
-        _LOGGER.info(actions)
-        _LOGGER.info(outputs)
+        self._state.current_action = actions[0]
+        self._state.battery_forecast = pd.DataFrame((vars(x) for x in outputs.segments), index=df.index)
 
     def unload(self) -> None:
         for u in self._unload:

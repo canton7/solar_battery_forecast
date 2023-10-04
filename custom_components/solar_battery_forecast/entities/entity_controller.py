@@ -6,6 +6,8 @@ from datetime import datetime
 import pandas as pd
 from homeassistant.config_entries import ConfigEntry
 
+from ..brains.battery_model import Action
+
 
 class EntityControllerSubscriber(ABC):
     @abstractmethod
@@ -21,6 +23,8 @@ class EntityControllerState:
     initial_load_forecast: pd.DataFrame | None = None
     solar_forecast: pd.DataFrame | None = None
     electricity_rates: pd.DataFrame | None = None
+    current_action: Action | None = None
+    battery_forecast: pd.DataFrame | None = None
 
 
 class EntityController(ABC):
