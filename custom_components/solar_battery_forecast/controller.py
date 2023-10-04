@@ -98,6 +98,7 @@ class Controller(EntityController):
 
     async def _run_model(self, now: datetime) -> None:
         now = dt.as_local(now)
+        is_midnight = now.hour == 0
         start = datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo)
 
         # TODO: This probably wants to be soc at the start of the hour, in case we're run at a different point?
@@ -110,17 +111,20 @@ class Controller(EntityController):
         ):
             self._state.current_action = None
             self._state.battery_forecast = None
+            if is_midnight:
+                self._state.initial_battery_forecast = None
             return
 
         df = self._state.electricity_rates.combine_first(self._state.load_forecast).combine_first(
             self._state.solar_forecast
         )
         df = df[start : start + load_forecaster.PREDICTION_PERIOD]  # type: ignore
-
         # If there's missing data, backfill from 24h prior
         # TODO: What if the data 24h prior is missing? Currently this is only affecting tariffs > end of tomorrow, so
         # it isn't an issue...
+        # TODO: The tariff forecast is now well-behaved here, but the load prediction can return nan
         df = df.fillna(df.shift(24))
+
         df = df.tz_convert(tz=now.tzinfo)
 
         segments = [
@@ -137,7 +141,13 @@ class Controller(EntityController):
         battery_model = BatteryModel(initial_battery=initial_battery)
         actions, outputs = await self._hass.async_add_executor_job(battery_model.shotgun_hillclimb, segments)
         self._state.current_action = actions[0]
-        self._state.battery_forecast = pd.DataFrame((vars(x) for x in outputs.segments), index=df.index)
+
+        battery_forecast = pd.DataFrame((vars(x) for x in outputs.segments), index=df.index)
+        # Truncate to 24h, as times beyond this aren't a fair reflection of what we'll end up doing
+        self._state.battery_forecast = battery_forecast.iloc[:24]
+
+        if is_midnight:
+            self._state.initial_battery_forecast = battery_forecast.iloc[:24]
 
     def unload(self) -> None:
         for u in self._unload:

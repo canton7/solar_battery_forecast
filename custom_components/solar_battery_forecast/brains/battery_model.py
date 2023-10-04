@@ -224,7 +224,7 @@ class BatteryModel:
             # short fill factors tend to be better.
             fill_factor = (1, 4, 8)[(_loops % 3)]
             # TODO: Thi 24 is faster... Is it better in all cases?
-            for i in range(48):  # Seeding about half seems to work well
+            for i in range(len(actions)):
                 if i % fill_factor == 0:
                     # if True:
                     charge = random.choice(charge_set)
