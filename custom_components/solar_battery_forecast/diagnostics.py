@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 from .brains import load_forecaster
 from .const import DOMAIN
 from .controller import Controller
+from .data.diagnostic_data import DiagnosticData
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
@@ -21,16 +22,20 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         return df.to_dict(orient="index")
 
     state = controller.state
+
+    soc = controller.data_source.get_soc()
     load_history = (
         await controller.data_source.load_sensor_history(state.last_update, load_forecaster.TRAIN_PERIOD)
         if state.last_update is not None
         else None
     )
 
-    return {
-        "load_history": serialize(load_history),
-        "initial_load_forecast": serialize(state.initial_load_forecast),
-        "load_forecast": serialize(state.load_forecast),
-        "solar_forecast": serialize(state.solar_forecast),
-        "electricity_rates": serialize(state.electricity_rates),
-    }
+    data = DiagnosticData(
+        soc=soc,
+        load_history=serialize(load_history),
+        initial_load_forecast=serialize(state.initial_load_forecast),
+        load_forecast=serialize(state.load_forecast),
+        solar_forecast=serialize(state.solar_forecast),
+        electricity_rates=serialize(state.electricity_rates),
+    )
+    return data  # type: ignore

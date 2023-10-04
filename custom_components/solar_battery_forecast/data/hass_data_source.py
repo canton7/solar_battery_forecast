@@ -178,13 +178,18 @@ class HassDataSource(DataSource):
                 rates, index="valid_from", exclude=["valid_to", "is_capped", "is_intelligent_adjusted"]
             ).rename(columns={"value_inc_vat": column})
             df.index.rename("start", inplace=True)
-            # TODO: Forecast might not be long enough
-            df = df.loc[this_hour_utc : this_hour_utc + period]  # type: ignore
+
             # We currently work with hourly data across the board. If we need to combine two half-hours with different
             # rates, take the max
             df = df.resample("H").sum()
 
-            return df
+            # Forecast might not be long enough. Fill with data 24h ago if that's the case
+            extended_df = df.reindex(pd.date_range(df.iloc[0].name, this_hour_utc + period, freq="H"))  # type: ignore
+            while extended_df[column].isnull().any():
+                extended_df = extended_df.fillna(extended_df.shift(24))
+            extended_df = extended_df.loc[this_hour_utc : this_hour_utc + period]  # type: ignore
+
+            return extended_df
 
         feed_in_rates = load(self._feed_in_rate_sensor, "Feed-in", "feed_in_tariff")
         import_rates = load(self._import_rate_sensor, "Import", "import_tariff")
