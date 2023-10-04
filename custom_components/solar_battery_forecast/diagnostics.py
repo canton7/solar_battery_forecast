@@ -29,6 +29,7 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         if state.last_update is not None
         else None
     )
+    current_action = vars(state.current_action) if state.current_action else None
 
     data = DiagnosticData(
         soc=soc,
@@ -37,5 +38,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
         load_forecast=serialize(state.load_forecast),
         solar_forecast=serialize(state.solar_forecast),
         electricity_rates=serialize(state.electricity_rates),
+        current_action=current_action,
+        battery_forecast=serialize(state.battery_forecast),
+        initial_battery_forecast=serialize(state.initial_battery_forecast),
     )
     return data  # type: ignore
