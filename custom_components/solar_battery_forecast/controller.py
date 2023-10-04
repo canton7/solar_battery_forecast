@@ -142,7 +142,9 @@ class Controller(EntityController):
         actions, outputs = await self._hass.async_add_executor_job(battery_model.shotgun_hillclimb, segments)
         self._state.current_action = actions[0]
 
-        battery_forecast = pd.DataFrame((vars(x) for x in outputs.segments), index=df.index)
+        # The nth prediction is actually for the end of that hour. Translate by 1 to make it the prediction at the
+        # start of the next hour
+        battery_forecast = pd.DataFrame((vars(x) for x in outputs.segments), index=df.index + pd.Timedelta(hours=1))
         # Truncate to 24h, as times beyond this aren't a fair reflection of what we'll end up doing
         self._state.battery_forecast = battery_forecast.iloc[:24]
 
