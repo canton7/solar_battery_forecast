@@ -22,6 +22,8 @@ class LoadForecaster:
             _LOGGER.warning(f"Unable to provide a forecast for {len(df)} hours of data. Please wait")
             return None
 
+        # Even a few missing values are enough to make it return solid NaNs for the forecast
+        df["value"] = df["value"].interpolate()
         df["value_log"] = np.log(df["value"])
         df = df.tail(floor(TRAIN_PERIOD.total_seconds() / 3600))
         model = STLForecast(
