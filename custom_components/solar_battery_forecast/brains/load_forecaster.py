@@ -24,7 +24,7 @@ class LoadForecaster:
 
         # Even a few missing values are enough to make it return solid NaNs for the forecast
         df["value"] = df["value"].interpolate()
-        df["value_log"] = np.log(df["value"])
+        df["value_log"] = np.log(df["value"] + 1)
         df = df.tail(floor(TRAIN_PERIOD.total_seconds() / 3600))
         model = STLForecast(
             df["value_log"],
@@ -35,11 +35,12 @@ class LoadForecaster:
         model_prediction = results.get_prediction(
             start=df.iloc[-1].name + pd.DateOffset(hours=1), end=df.iloc[-1].name + PREDICTION_PERIOD  # type: ignore
         )
-        predicted_value: pd.DataFrame = np.exp(model_prediction.predicted_mean.rename("predicted").to_frame())
+        predicted_value: pd.DataFrame = np.exp(model_prediction.predicted_mean.rename("predicted").to_frame()) - 1
         confidence_interval: pd.DataFrame = np.exp(
             model_prediction.conf_int(alpha=0.5).rename(
                 columns={"upper": "predicted_upper", "lower": "predicted_lower"}
             )
+            - 1
         )
         prediction = predicted_value.combine_first(confidence_interval)
         return prediction
