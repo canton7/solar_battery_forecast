@@ -35,3 +35,6 @@ class FileDataSource(DataSource):
 
     def load_electricity_rates(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:
         return self._deserialize(self._file["electricity_rates"], now.tzinfo, "H")
+
+    def load_load_forecast(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:
+        return self._deserialize(self._file["load_forecast"], now.tzinfo, "H")
