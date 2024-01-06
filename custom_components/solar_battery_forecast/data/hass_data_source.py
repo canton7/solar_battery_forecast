@@ -174,7 +174,7 @@ class HassDataSource(DataSource):
                 _LOGGER.warning("%s rate sensor '%s' has no attribute 'rates", name, entity_id)
                 return None
 
-            df = pd.DataFrame.from_records(rates, index="start", exclude=["end", "is_capped", "value_inc_vat"]).rename(
+            df = pd.DataFrame.from_records(rates, index="start", exclude=["end", "is_capped"]).rename(
                 columns={"value_inc_vat": column}
             )
             df.index.rename("start", inplace=True)
