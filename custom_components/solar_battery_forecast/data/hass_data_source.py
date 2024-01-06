@@ -183,6 +183,9 @@ class HassDataSource(DataSource):
             # rates, take the max
             df = df.resample("H").sum()
 
+            # The Octopu integration currently works in pounds. Everything internally expects pence.
+            df *= 100
+
             # Forecast might not be long enough. Fill with data 24h ago if that's the case
             extended_df = df.reindex(pd.date_range(df.iloc[0].name, this_hour_utc + period, freq="H"))  # type: ignore
             while extended_df[column].isnull().any():
