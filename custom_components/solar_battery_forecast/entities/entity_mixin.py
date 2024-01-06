@@ -25,7 +25,13 @@ else:
     _ModbusEntityMixinBase = object
 
 
-class EntityMixin(EntityControllerSubscriber, ModbusEntityProtocol, _ModbusEntityMixinBase):
+class EntityMixinMetaclass(type(Entity), type(Protocol)):  # type: ignore
+    pass
+
+
+class EntityMixin(
+    EntityControllerSubscriber, ModbusEntityProtocol, _ModbusEntityMixinBase, metaclass=EntityMixinMetaclass
+):
     @property
     def unique_id(self) -> str:
         # TODO: DO we want to support multiple configs?
