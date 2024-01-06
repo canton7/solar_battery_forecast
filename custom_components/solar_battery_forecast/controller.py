@@ -29,8 +29,8 @@ CONFIG = MainConfig(
     solar_forecast_today_sensor="sensor.solcast_pv_forecast_forecast_today",
     solar_forecast_tomorrow_sensor="sensor.solcast_pv_forecast_forecast_tomorrow",
     solar_forecast_d3_sensor="sensor.solcast_pv_forecast_forecast_day_3",
-    electricity_import_rate_sensor="sensor.octopus_energy_electricity_current_rate",
-    electricity_feed_in_rate_sensor="sensor.octopus_energy_electricity_export_current_rate",
+    electricity_import_rate_sensor="sensor.octopus_energy_electricity_current_day_rates",
+    electricity_feed_in_rate_sensor="sensor.octopus_energy_electricity_export_current_day_rates",
 )
 
 

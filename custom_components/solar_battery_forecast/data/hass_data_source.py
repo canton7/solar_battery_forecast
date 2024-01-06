@@ -169,14 +169,14 @@ class HassDataSource(DataSource):
                 # Disabled
                 _LOGGER.warning("%s rate sensor '%s' is disabled or not yet loaded", name, entity_id)
                 return None
-            rates = state.attributes.get("all_rates", None)
+            rates = state.attributes.get("rates", None)
             if rates is None:
-                _LOGGER.warning("%s rate sensor '%s' has no attribute 'all_rates", name, entity_id)
+                _LOGGER.warning("%s rate sensor '%s' has no attribute 'rates", name, entity_id)
                 return None
 
-            df = pd.DataFrame.from_records(
-                rates, index="valid_from", exclude=["valid_to", "is_capped", "is_intelligent_adjusted"]
-            ).rename(columns={"value_inc_vat": column})
+            df = pd.DataFrame.from_records(rates, index="start", exclude=["end", "is_capped", "value_inc_vat"]).rename(
+                columns={"value_inc_vat": column}
+            )
             df.index.rename("start", inplace=True)
 
             # We currently work with hourly data across the board. If we need to combine two half-hours with different
