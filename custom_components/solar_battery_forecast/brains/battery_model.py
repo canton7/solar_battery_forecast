@@ -413,7 +413,7 @@ class BatteryModel:
             copied_another_action = False
 
             # If we can make it the same as the previous action, do that
-            if not copied_another_action and slot > 0:
+            if not copied_another_action and slot > 0 and old_action != best_actions_ever[slot - 1]:
                 best_actions_ever[slot] = best_actions_ever[slot - 1].clone()
                 new_result = self.run(segments, best_actions_ever)
                 if not self.is_better(best_result_ever, new_result, margin=MARGIN):
@@ -449,6 +449,10 @@ class BatteryModel:
                 if self.is_better(best_result_ever, new_result, margin=MARGIN):
                     best_actions_ever[candidate] = prev_action
                     break
+
+        # We might have made the result slightly worse. Re-calculate
+        # (we don't do this as we go, to make sure that we never get more than MARGIN away from the original best case)
+        best_result_ever = self.run(segments, best_actions_ever)
 
         # We may need to run this more than once
         while True:
