@@ -1,24 +1,31 @@
 import random
 from dataclasses import dataclass
 from dataclasses import field
+from enum import Enum
 from typing import Iterable
 from typing import Sequence
 
 
+class ActionType(Enum):
+    SELF_USE = 0
+    CHARGE = 1
+    DISCHAGE = 2
+
+
 @dataclass
 class Action:
-    charge: bool
+    action_type: ActionType
     min_soc: float
     max_soc: float
 
     def clone(self) -> "Action":
-        return Action(self.charge, self.min_soc, self.max_soc)
+        return Action(self.action_type, self.min_soc, self.max_soc)
 
     def make_hash(self) -> int:
-        return hash((self.charge, self.min_soc, self.max_soc))
+        return hash((self.action_type, self.min_soc, self.max_soc))
 
     def __repr__(self) -> str:
-        return f"Action({self.charge}, {self.min_soc}, {self.max_soc})"
+        return f"Action({self.action_type}, {self.min_soc}, {self.max_soc})"
 
 
 @dataclass
@@ -48,7 +55,7 @@ OPTIMIZATION_SOC_STEP_PERCENT = 10
 # worse can still be selected
 MARGIN = 1.0
 
-INITIAL_ACTION = Action(charge=False, min_soc=MIN_SOC_PERMITTED_PERCENT / 100, max_soc=1.0)
+INITIAL_ACTION = Action(ActionType.SELF_USE, min_soc=MIN_SOC_PERMITTED_PERCENT / 100, max_soc=1.0)
 
 
 @dataclass
@@ -128,7 +135,7 @@ class BatteryModel:
             grid_to_load = 0.0
             grid_to_battery_dc = 0.0
 
-            if action.charge:
+            if action.action_type == ActionType.SELF_USE:
                 # I don't actually know, but... I assume that solar replaces grid up to the charge rate
                 solar_to_battery = clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, segment.generation)
                 grid_to_battery_dc = clamp(
@@ -142,7 +149,7 @@ class BatteryModel:
                     solar_to_grid = min(EXPORT_LIMIT_PER_SEGMENT, excess_solar_ac - segment.consumption)
                 else:
                     grid_to_load = segment.consumption - excess_solar_ac
-            else:
+            elif action.action_type == ActionType.CHARGE:
                 # If generation can cover consumption, excess goes into battery. Else excess comes from battery if
                 # available
                 if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY:
@@ -204,7 +211,7 @@ class BatteryModel:
 
     def shotgun_hillclimb(self, segments: list[TimeSegment]) -> tuple[list[Action], RunOutput]:
         # visited_actions_hashes = set()
-        charge_set = [False, True]
+        action_type_set = (ActionType.SELF_USE, ActionType.CHARGE, ActionType.DISCHAGE)
         best_result_ever: float | None = None
         best_actions_ever: list[Action] = []
         slots = list(range(len(segments)))
@@ -227,16 +234,18 @@ class BatteryModel:
             for i in range(len(actions)):
                 if i % fill_factor == 0:
                     # if True:
-                    charge = random.choice(charge_set)
+                    action_type = random.choice(action_type_set)
                     # No point having a min soc when charging
                     min_soc_percent = (
-                        MIN_SOC_PERMITTED_PERCENT if charge else random.choice((MIN_SOC_PERMITTED_PERCENT, 100))
+                        MIN_SOC_PERMITTED_PERCENT
+                        if action_type == ActionType.CHARGE
+                        else random.choice((MIN_SOC_PERMITTED_PERCENT, 100))
                     )
                     actions[i] = Action(
-                        charge,
+                        action_type,
                         min_soc=min_soc_percent / 100.0,
                         max_soc=random.randrange(min_soc_percent, 101, SOC_STEP_PERCENT) / 100.0
-                        if charge
+                        if action_type == ActionType.CHARGE
                         else random.choice([min_soc_percent, 100]) / 100.0,
                     )
             best_actions = actions.copy()
@@ -252,20 +261,20 @@ class BatteryModel:
                     old_action = actions[slot]
                     if actions[slot] is None:
                         actions[slot] = Action(
-                            charge=False, min_soc=MIN_SOC_PERMITTED_PERCENT / 100, max_soc=1.0
+                            ActionType.SELF_USE, min_soc=MIN_SOC_PERMITTED_PERCENT / 100, max_soc=1.0
                         )  # All these properties are going to be overridden shortly
                     else:
                         actions[slot] = actions[slot].clone()  # type: ignore
                     action = actions[slot]
                     assert action is not None
 
-                    for new_charge in charge_set:
-                        action.charge = new_charge
+                    for new_action_type in action_type_set:
+                        action.action_type = new_action_type
                         # min soc is used to prevent discharge. We'll give the model 2 options: prevent discharge,
                         # or don't.
                         for new_min_soc_percent in (
                             (MIN_SOC_PERMITTED_PERCENT,)
-                            if new_charge
+                            if new_action_type == ActionType.CHARGE
                             or segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
                             else (MIN_SOC_PERMITTED_PERCENT, 100)
                         ):
@@ -275,7 +284,7 @@ class BatteryModel:
                             #  - when we're consuming solar, to leave space in the battery for e.g. a cheap charge
                             #    period in the future
                             new_max_soc_percents: Iterable[int]
-                            if new_charge:
+                            if new_action_type == ActionType.CHARGE:
                                 new_max_soc_percents = range(new_min_soc_percent, 101, SOC_STEP_PERCENT)
                             elif segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY:
                                 new_max_soc_percents = (new_min_soc_percent, 100)
@@ -422,14 +431,15 @@ class BatteryModel:
                     best_actions_ever[slot] = old_action
 
             # Try and disable charging
-            if not copied_another_action and best_actions_ever[slot].charge:
-                best_actions_ever[slot].charge = False
+            # TODO: Do we need to consider force-discharge here
+            if not copied_another_action and best_actions_ever[slot].action_type == ActionType.CHARGE:
+                best_actions_ever[slot].action_type = ActionType.SELF_USE
                 new_result = self.run(segments, best_actions_ever)
                 # If the old result was better, go back to it and continue. Otherwise go for the new result
                 if not self.is_better(best_result_ever, new_result, margin=MARGIN):
                     break
                 # assert(new_score < best_score_ever)
-                best_actions_ever[slot].charge = True
+                best_actions_ever[slot].action_type = ActionType.CHARGE
 
         # The step above will have removed any unnecessary charge periods (which do pop up, as a means to prevent
         # discharge). However, we do want charge periods to extend backwards as far as possible. If we have a 3-hour
@@ -437,11 +447,12 @@ class BatteryModel:
         ends_of_charge_periods = [
             i
             for i in range(1, len(best_actions_ever))
-            if best_actions_ever[i].charge and (i == len(best_actions_ever) - 1 or not best_actions_ever[i + 1].charge)
+            if best_actions_ever[i].action_type == ActionType.CHARGE
+            and (i == len(best_actions_ever) - 1 or best_actions_ever[i + 1].action_type != ActionType.CHARGE)
         ]
         for end_of_charge_period in ends_of_charge_periods:
             for candidate in range(end_of_charge_period - 1, -1, -1):
-                if best_actions_ever[candidate].charge:
+                if best_actions_ever[candidate].action_type == ActionType.CHARGE:
                     continue
                 prev_action = best_actions_ever[candidate]
                 best_actions_ever[candidate] = best_actions_ever[end_of_charge_period].clone()
@@ -516,7 +527,7 @@ class BatteryModel:
             # as to prevent excessive discharge in this case (e.g. to tide us through an expensive period).
 
             prev_min_soc = actions[slot].min_soc
-            if actions[slot].charge:
+            if actions[slot].action_type == ActionType.CHARGE:
                 # For charge periods, just set min soc to the min
                 actions[slot].min_soc = OPTIMIZATION_MIN_SOC_PERCENT / 100
             else:
@@ -554,7 +565,7 @@ class BatteryModel:
             # generation < consumption, the model won't see any reason to impose a max soc to stop the battery from
             # charging. Applying a shock generation ensures that this limit is put in place.
             # Else, if this is a charge period, just make it as high as it can be.
-            if not actions[slot].charge:
+            if actions[slot].action_type == ActionType.SELF_USE:
                 prev_max_soc = actions[slot].max_soc
                 prev_generation = segments[slot].generation
                 # Don't do this if it's night
@@ -586,7 +597,7 @@ class BatteryModel:
                 best_result_ever = self.run(segments, actions)
 
         for slot in range(len(actions)):
-            if actions[slot].charge:
+            if actions[slot].action_type == ActionType.CHARGE:
                 prev_max_soc = actions[slot].max_soc
                 for max_soc_percent in range(100, round(prev_max_soc * 100), -SOC_STEP_PERCENT):
                     actions[slot].max_soc = max_soc_percent / 100
