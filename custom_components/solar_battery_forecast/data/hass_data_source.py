@@ -86,7 +86,7 @@ class HassDataSource(DataSource):
             df = pd.DataFrame.from_records(get_records(), index="start")
             # Make sure that any missing values at the end are filled with nan
             df = df.reindex(
-                pd.date_range(start=df.iloc[0].name, end=dt.as_local(start_of_last_hour), freq="H"),  # type: ignore
+                pd.date_range(start=df.iloc[0].name, end=dt.as_local(start_of_last_hour), freq="h"),  # type: ignore
                 fill_value=np.nan,
             )
 

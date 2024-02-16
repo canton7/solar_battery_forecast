@@ -1,6 +1,7 @@
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import Platform
 
+from ..brains.battery_model import ActionType
 from .entity_controller import EntityController
 from .entity_mixin import EntityMixin
 
@@ -20,8 +21,15 @@ class CurrentActionSensor(EntityMixin, SensorEntity):
             self._attr_native_value = None
             self._attr_extra_state_attributes = {}
         else:
-            charge_text = "Charge" if current_action.charge else "Self Use"
-            charge_attr = "charge" if current_action.charge else "self_use"
+            if current_action.action_type == ActionType.CHARGE:
+                charge_text = "Charge"
+                charge_attr = "charge"
+            elif current_action.action_type == ActionType.DISCHAGE:
+                charge_text = "Disharge"
+                charge_attr = "discharge"
+            elif current_action.action_type == ActionType.SELF_USE:
+                charge_text = "Self Use"
+                charge_attr = "self_use"
 
             min_soc = round(current_action.min_soc * 100)
             max_soc = round(current_action.max_soc * 100)
