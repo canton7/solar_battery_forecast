@@ -157,6 +157,8 @@ class HassDataSource(DataSource):
 
         df = pd.DataFrame.from_records(periods, index="period_start")
         df.index.rename("start", inplace=True)
+        # It seems that Solcast provides half-hourly readings for today
+        df = df.resample("h").sum()
         df = df.loc[this_hour : this_hour + period]  # type: ignore
         return df
 
