@@ -146,8 +146,11 @@ class BatteryModel:
                     # Generation covers consumption: charge the battery and then export the rest
                     excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
                     battery_discharge = -clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, excess_solar_dc)
-                    inverter_output_ac = (excess_solar_dc - battery_discharge) * DC_TO_AC_EFFICIENCY
+                    inverter_output_ac = (
+                        segment.consumption + (excess_solar_dc - battery_discharge) * DC_TO_AC_EFFICIENCY
+                    )
                 else:
+                    # Generation doesn't cover consumption: output all generation + some battery
                     required_energy_dc = segment.consumption / DC_TO_AC_EFFICIENCY - segment.generation
                     battery_discharge = clamp(battery_level - BATTERY_CAPACITY * action.min_soc, 0, required_energy_dc)
                     inverter_output_ac = (segment.generation + battery_discharge) * DC_TO_AC_EFFICIENCY
@@ -417,15 +420,22 @@ class BatteryModel:
                     best_actions_ever[slot] = old_action
 
             # Try and disable charging
-            # TODO: Do we need to consider force-discharge here
+            # (discharging doesn't seem to need this)
             if not copied_another_action and best_actions_ever[slot].action_type == ActionType.CHARGE:
+                best_actions_ever[slot] = best_actions_ever[slot].clone()
+                # A charge with a low max soc is sometimes used to limit charge (which we can replace with low min/max
+                # soc) or discharge (replaced with high min/max soc)
                 best_actions_ever[slot].action_type = ActionType.SELF_USE
+                best_actions_ever[slot].max_soc = 1.0
+                best_actions_ever[slot].min_soc = 1.0
                 new_result = self.run(segments, best_actions_ever)
                 # If the old result was better, go back to it and continue. Otherwise go for the new result
-                if not self.is_better(best_result_ever, new_result, margin=MARGIN):
-                    break
-                # assert(new_score < best_score_ever)
-                best_actions_ever[slot].action_type = ActionType.CHARGE
+                if self.is_better(best_result_ever, new_result, margin=MARGIN):
+                    best_actions_ever[slot].max_soc = MIN_SOC_PERMITTED_PERCENT
+                    best_actions_ever[slot].min_soc = MIN_SOC_PERMITTED_PERCENT
+                    new_result = self.run(segments, best_actions_ever)
+                    if self.is_better(best_result_ever, new_result, margin=MARGIN):
+                        best_actions_ever[slot] = old_action
 
         # The step above will have removed any unnecessary charge periods (which do pop up, as a means to prevent
         # discharge). However, we do want charge periods to extend backwards as far as possible. If we have a 3-hour
@@ -452,12 +462,12 @@ class BatteryModel:
         best_result_ever = self.run(segments, best_actions_ever)
 
         # We may need to run this more than once
-        # while True:
-        #     changed, best_result_ever = self.optimize_min_max_soc(
-        #         segments, best_actions_ever, best_result_ever, margin=MARGIN
-        #     )
-        #     if not changed:
-        #         break
+        while True:
+            changed, best_result_ever = self.optimize_min_max_soc(
+                segments, best_actions_ever, best_result_ever, margin=MARGIN
+            )
+            if not changed:
+                break
 
         # Now we want to shorten charge periods. The problem is that if generation is predicted to be low, the model
         # can extend an overnight charging period until mid-morning. However there's no advantage in doing this:
@@ -551,7 +561,10 @@ class BatteryModel:
             # generation < consumption, the model won't see any reason to impose a max soc to stop the battery from
             # charging. Applying a shock generation ensures that this limit is put in place.
             # Else, if this is a charge period, just make it as high as it can be.
-            if actions[slot].action_type == ActionType.SELF_USE:
+            if actions[slot].action_type == ActionType.DISCHAGE:
+                # For discharge periods, just set the max soc to the max
+                actions[slot].max_soc = 1.0
+            elif actions[slot].action_type == ActionType.SELF_USE:
                 prev_max_soc = actions[slot].max_soc
                 prev_generation = segments[slot].generation
                 # Don't do this if it's night
