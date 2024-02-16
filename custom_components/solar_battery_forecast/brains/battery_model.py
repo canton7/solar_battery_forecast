@@ -431,8 +431,8 @@ class BatteryModel:
                 new_result = self.run(segments, best_actions_ever)
                 # If the old result was better, go back to it and continue. Otherwise go for the new result
                 if self.is_better(best_result_ever, new_result, margin=MARGIN):
-                    best_actions_ever[slot].max_soc = MIN_SOC_PERMITTED_PERCENT
-                    best_actions_ever[slot].min_soc = MIN_SOC_PERMITTED_PERCENT
+                    best_actions_ever[slot].max_soc = MIN_SOC_PERMITTED_PERCENT / 100.0
+                    best_actions_ever[slot].min_soc = MIN_SOC_PERMITTED_PERCENT / 100.0
                     new_result = self.run(segments, best_actions_ever)
                     if self.is_better(best_result_ever, new_result, margin=MARGIN):
                         best_actions_ever[slot] = old_action
@@ -475,8 +475,8 @@ class BatteryModel:
                 best_actions_ever[candidate] = best_actions_ever[candidate].clone()
                 # The closest we can get to discharge using self-use is a low min/max to prevent charge
                 best_actions_ever[candidate].action_type = ActionType.SELF_USE
-                best_actions_ever[candidate].min_soc = MIN_SOC_PERMITTED_PERCENT
-                best_actions_ever[candidate].max_soc = MIN_SOC_PERMITTED_PERCENT
+                best_actions_ever[candidate].min_soc = MIN_SOC_PERMITTED_PERCENT / 100.0
+                best_actions_ever[candidate].max_soc = MIN_SOC_PERMITTED_PERCENT / 100.0
                 new_result = self.run(segments, best_actions_ever)
                 if self.is_better(best_result_ever, new_result, margin=MARGIN):
                     best_actions_ever[candidate] = prev_action
