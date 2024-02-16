@@ -39,7 +39,6 @@ class TimeSegment:
 SEGMENT_LENGTH_HOURS = 1
 BATTERY_CAPACITY = 4.2
 
-
 AC_TO_DC_EFFICIENCY = 0.95
 DC_TO_AC_EFFICIENCY = 0.8
 
@@ -136,11 +135,6 @@ class BatteryModel:
         for segment, action_change in zip(segments, actions, strict=True):
             if action_change is not None:
                 action = action_change
-            solar_to_battery = 0.0
-            solar_to_grid = 0.0
-            battery_to_load = 0.0
-            grid_to_load = 0.0
-            grid_to_battery_dc = 0.0
 
             battery_discharge = 0.0
             inverter_output_ac = 0.0
@@ -166,9 +160,9 @@ class BatteryModel:
                     inverter_to_battery_dc = clamp(
                         BATTERY_CAPACITY * action.max_soc - battery_level - solar_to_battery,
                         0,
-                        INVERTER_POWER_PER_SEGMENT / DC_TO_AC_EFFICIENCY,
+                        INVERTER_POWER_PER_SEGMENT / AC_TO_DC_EFFICIENCY,
                     )
-                    inverter_output_ac = -inverter_to_battery_dc * DC_TO_AC_EFFICIENCY
+                    inverter_output_ac = -inverter_to_battery_dc * AC_TO_DC_EFFICIENCY
                 else:
                     # Any excess solar is output from the inverter
                     inverter_to_battery_dc = 0
@@ -181,12 +175,19 @@ class BatteryModel:
                 inverter_max_export_dc = INVERTER_POWER_PER_SEGMENT / DC_TO_AC_EFFICIENCY
                 solar_to_inverter_export = min(segment.generation, inverter_max_export_dc)
                 # The battery dischages to make up the gap if possible. Any excess generation goes into the battery
-                battery_discharge = clamp(
-                    inverter_max_export_dc - solar_to_inverter_export,
-                    -(BATTERY_CAPACITY * action.max_soc - battery_level),
-                    battery_level - BATTERY_CAPACITY * action.min_soc,
-                )
-                inverter_output_ac = (solar_to_battery + max(0, battery_discharge)) * DC_TO_AC_EFFICIENCY
+                if inverter_max_export_dc > solar_to_inverter_export:
+                    battery_discharge = clamp(
+                        battery_level - BATTERY_CAPACITY * action.min_soc,
+                        0,
+                        inverter_max_export_dc - solar_to_inverter_export,
+                    )
+                else:
+                    battery_discharge = -clamp(
+                        BATTERY_CAPACITY * action.max_soc - battery_level,
+                        0,
+                        solar_to_inverter_export - inverter_max_export_dc,
+                    )
+                inverter_output_ac = (solar_to_inverter_export + max(0, battery_discharge)) * DC_TO_AC_EFFICIENCY
 
             battery_level -= battery_discharge
             assert battery_level >= 0
@@ -239,13 +240,7 @@ class BatteryModel:
 
     def shotgun_hillclimb(self, segments: list[TimeSegment]) -> tuple[list[Action], RunOutput]:
         # visited_actions_hashes = set()
-<<<<<<< Updated upstream
-        action_type_set = (ActionType.SELF_USE, ActionType.CHARGE)
-||||||| Stash base
         action_type_set = (ActionType.SELF_USE, ActionType.CHARGE, ActionType.DISCHAGE)
-=======
-        action_type_set = (ActionType.SELF_USE, ActionType.CHARGE) # , ActionType.DISCHAGE
->>>>>>> Stashed changes
         best_result_ever: float | None = None
         best_actions_ever: list[Action] = []
         slots = list(range(len(segments)))
@@ -275,12 +270,16 @@ class BatteryModel:
                         if action_type == ActionType.CHARGE
                         else random.choice((MIN_SOC_PERMITTED_PERCENT, 100))
                     )
+                    # No point in having a max soc when self-use or discharging
+                    max_soc_percent = (
+                        random.randrange(min_soc_percent, 101, SOC_STEP_PERCENT)
+                        if action_type == ActionType.CHARGE
+                        else random.choice([min_soc_percent, 100])
+                    )
                     actions[i] = Action(
                         action_type,
                         min_soc=min_soc_percent / 100.0,
-                        max_soc=random.randrange(min_soc_percent, 101, SOC_STEP_PERCENT) / 100.0
-                        if action_type == ActionType.CHARGE
-                        else random.choice([min_soc_percent, 100]) / 100.0,
+                        max_soc=max_soc_percent / 100.0,
                     )
             best_actions = actions.copy()
             best_result = self.run(segments, actions)
@@ -304,25 +303,39 @@ class BatteryModel:
 
                     for new_action_type in action_type_set:
                         action.action_type = new_action_type
-                        # min soc is used to prevent discharge. We'll give the model 2 options: prevent discharge,
-                        # or don't.
-                        for new_min_soc_percent in (
-                            (MIN_SOC_PERMITTED_PERCENT,)
-                            if new_action_type == ActionType.CHARGE
-                            or segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
-                            else (MIN_SOC_PERMITTED_PERCENT, 100)
-                        ):
+                        # min soc is used:
+                        # - when charging, it isn't used
+                        # - when in self use, to prevent discharge
+                        # - when force discharging, to say what limit to force discharge to
+                        new_min_soc_percents: Iterable[int]
+                        if new_action_type == ActionType.CHARGE:
+                            new_min_soc_percents = (MIN_SOC_PERMITTED_PERCENT,)
+                        elif new_action_type == ActionType.SELF_USE:
+                            new_min_soc_percents = (
+                                (MIN_SOC_PERMITTED_PERCENT,)
+                                if segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
+                                else (MIN_SOC_PERMITTED_PERCENT, 100)
+                            )
+                        elif new_action_type == ActionType.DISCHAGE:
+                            new_min_soc_percents = range(MIN_SOC_PERMITTED_PERCENT, 101, SOC_STEP_PERCENT)
+
+                        for new_min_soc_percent in new_min_soc_percents:
                             action.min_soc = new_min_soc_percent / 100
                             # max soc is used:
                             #  - when charging, to limit how much we pull from the grid
                             #  - when we're consuming solar, to leave space in the battery for e.g. a cheap charge
                             #    period in the future
+                            # - when discharging, unused
                             new_max_soc_percents: Iterable[int]
                             if new_action_type == ActionType.CHARGE:
                                 new_max_soc_percents = range(new_min_soc_percent, 101, SOC_STEP_PERCENT)
-                            elif segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY:
-                                new_max_soc_percents = (new_min_soc_percent, 100)
-                            else:
+                            elif new_action_type == ActionType.SELF_USE:
+                                new_max_soc_percents = (
+                                    (new_min_soc_percent, 100)
+                                    if segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
+                                    else (100,)
+                                )
+                            elif new_action_type == ActionType.DISCHAGE:
                                 new_max_soc_percents = (100,)
 
                             for new_max_soc_percent in new_max_soc_percents:
@@ -350,70 +363,13 @@ class BatteryModel:
                             actions[slot] = old_action
                         else:
                             removed += 1
-                # print(f"Removed {removed}")
-
-                # Try and remove actions, if doing so doesn't actively make things worse
-                # if found_better:
-                #     removed = 0
-                #     for slot in range(len(actions)):
-                #         old_action = best_improved_actions[slot]
-                #         best_improved_actions[slot] = None
-                #         new_result = self.run(segments, best_improved_actions, initial_battery)
-                #         if self.is_better(best_improved_result, new_result):
-                #             best_improved_actions[slot] = old_action
-                #         else:
-                #             removed += 1
-                # print(f"Removed {removed}")
-
-                # This does appear to be excluding solutions sometimes...
-                # actions_hash = self.create_hash(actions)
-                # if actions_hash in visited_actions_hashes:
-                #     break
-                # visited_actions_hashes.add(actions_hash)
 
                 if found_better:
                     # Did we find an improvement? Keep going
                     best_result = best_improved_result
                     best_actions = actions = best_improved_actions  # type: ignore
                 else:
-                    # No? We've reached a local maximum
-                    # removed = 0
-                    # for slot in range(len(actions)):
-                    #     old_action = actions[slot]
-                    #     if old_action is not None:
-                    #         actions[slot] = None
-                    #         new_result = self.run(segments, actions, initial_battery)
-                    #         if self.is_better(best_improved_result, new_result, margin=MARGIN):
-                    #             actions[slot] = old_action
-                    #         else:
-                    #             removed += 1
-                    # # print(f"Removed {removed}")
-                    # if removed == 0:
                     break
-
-                    # changed = self.optimize_min_max_soc(
-                    #     segments, best_actions, best_result, initial_battery, shock=False
-                    # )
-                    # if changed:
-                    #     new_result = self.run(segments, best_actions, initial_battery)
-                    #     # print(f"Local maximum! Optimized min/max soc, {best_result} -> {new_result}")
-                    #     best_result = new_result
-                    # else:
-                    #     break
-
-                    # I would have thought this would help, but it doesn't appear to
-                    # old_action = INITIAL_ACTION
-                    # for slot in range(len(actions)):
-                    #     if best_actions[slot] is None:
-                    #         # We're going to be mutating these, so we need to clone them
-                    #         best_actions[slot] = old_action.clone()
-                    #     else:
-                    #         old_action = best_actions[slot]
-
-                    # while self.optimize_min_max_soc(segments, best_actions, initial_battery):
-                    #     pass
-                    # best_result = self.run(segments, best_actions, initial_battery)
-                    # break
 
             best_result_24h = self.run(segments[:24], best_actions[:24])
             # self.run(segments, best_actions, initial_battery, debug=True)
@@ -425,10 +381,6 @@ class BatteryModel:
                 print(f"Not improved: {best_result} ({best_result_24h})")
 
         # Also get rid of Nones
-
-        # At this point, scrap > 48h
-        # segments = segments[:24]
-        # best_actions_ever = best_actions_ever[:24]
 
         old_action = INITIAL_ACTION
         for slot in range(len(best_actions_ever)):
@@ -500,12 +452,12 @@ class BatteryModel:
         best_result_ever = self.run(segments, best_actions_ever)
 
         # We may need to run this more than once
-        while True:
-            changed, best_result_ever = self.optimize_min_max_soc(
-                segments, best_actions_ever, best_result_ever, margin=MARGIN
-            )
-            if not changed:
-                break
+        # while True:
+        #     changed, best_result_ever = self.optimize_min_max_soc(
+        #         segments, best_actions_ever, best_result_ever, margin=MARGIN
+        #     )
+        #     if not changed:
+        #         break
 
         # Now we want to shorten charge periods. The problem is that if generation is predicted to be low, the model
         # can extend an overnight charging period until mid-morning. However there's no advantage in doing this:
