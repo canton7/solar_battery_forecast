@@ -38,3 +38,10 @@ force-single-line = true
 [tool.black]
 line-length = 120
 exclude = "scripts"
+
+[tool.ariadne-codegen]
+# ariadne-codegen
+queries_path = "custom_components/solar_battery_forecast/octopus_api/queries.graphql"
+remote_schema_url = "https://api.octopus.energy/v1/graphql/"
+target_package_path = "custom_components/solar_battery_forecast/octopus_api"
+plugins = ["ariadne_codegen.contrib.shorter_results.ShorterResultsPlugin"]
