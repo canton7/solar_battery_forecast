@@ -38,10 +38,17 @@ class TimeSegment:
 
 SEGMENT_LENGTH_HOURS = 1
 BATTERY_CAPACITY = 4.2
-BATTERY_CHARGE_AMOUNT_PER_SEGMENT = 3 * SEGMENT_LENGTH_HOURS
-EXPORT_LIMIT_PER_SEGMENT = 9999
+
+
 AC_TO_DC_EFFICIENCY = 0.95
 DC_TO_AC_EFFICIENCY = 0.8
+
+INVERTER_POWER_PER_SEGMENT = 3 * SEGMENT_LENGTH_HOURS
+
+# BATTERY_CHARGE_AMOUNT_PER_SEGMENT = 3 * SEGMENT_LENGTH_HOURS
+# BATTERY_DISCHARGE_AMOUNT_PER_SEGMENT = 3 * SEGMENT_LENGTH_HOURS
+
+EXPORT_LIMIT_PER_SEGMENT = 9999
 EXPORT_LIMIT_PER_SEGMENT_DC = EXPORT_LIMIT_PER_SEGMENT / DC_TO_AC_EFFICIENCY
 
 # Lowest that we can choose to discharge the battery to
@@ -135,43 +142,64 @@ class BatteryModel:
             grid_to_load = 0.0
             grid_to_battery_dc = 0.0
 
+            battery_discharge = 0.0
+            inverter_output_ac = 0.0
+
             if action.action_type == ActionType.SELF_USE:
-                # I don't actually know, but... I assume that solar replaces grid up to the charge rate
-                solar_to_battery = clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, segment.generation)
-                grid_to_battery_dc = clamp(
-                    BATTERY_CAPACITY * action.max_soc - battery_level - solar_to_battery,
-                    0,
-                    BATTERY_CHARGE_AMOUNT_PER_SEGMENT,
-                )
-                excess_solar_ac = (segment.generation - solar_to_battery) * DC_TO_AC_EFFICIENCY
-                # Doesn't consider inverter limits
-                if excess_solar_ac > segment.consumption:
-                    solar_to_grid = min(EXPORT_LIMIT_PER_SEGMENT, excess_solar_ac - segment.consumption)
-                else:
-                    grid_to_load = segment.consumption - excess_solar_ac
-            elif action.action_type == ActionType.CHARGE:
                 # If generation can cover consumption, excess goes into battery. Else excess comes from battery if
                 # available
                 if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY:
+                    # Generation covers consumption: charge the battery and then export the rest
                     excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
-                    solar_to_battery = clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, excess_solar_dc)
-                    solar_to_grid = (
-                        min(EXPORT_LIMIT_PER_SEGMENT_DC, excess_solar_dc - solar_to_battery) * DC_TO_AC_EFFICIENCY
-                    )
+                    battery_discharge = -clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, excess_solar_dc)
+                    inverter_output_ac = (excess_solar_dc - battery_discharge) * DC_TO_AC_EFFICIENCY
                 else:
-                    required_energy_ac = segment.consumption - segment.generation * DC_TO_AC_EFFICIENCY
-                    battery_to_load = clamp(
-                        battery_level - BATTERY_CAPACITY * action.min_soc, 0, required_energy_ac / DC_TO_AC_EFFICIENCY
-                    )
-                    grid_to_load = required_energy_ac - battery_to_load * DC_TO_AC_EFFICIENCY
+                    required_energy_dc = segment.consumption / DC_TO_AC_EFFICIENCY - segment.generation
+                    battery_discharge = clamp(battery_level - BATTERY_CAPACITY * action.min_soc, 0, required_energy_dc)
+                    inverter_output_ac = (segment.generation + battery_discharge) * DC_TO_AC_EFFICIENCY
 
-            battery_change = solar_to_battery + grid_to_battery_dc - battery_to_load
-            battery_level += battery_change
+            elif action.action_type == ActionType.CHARGE:
+                # Solar goes to the battery if available
+                solar_to_battery = clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, segment.generation)
+                if solar_to_battery == segment.generation:
+                    # Any remaining charge comes through the inverter
+                    inverter_to_battery_dc = clamp(
+                        BATTERY_CAPACITY * action.max_soc - battery_level - solar_to_battery,
+                        0,
+                        INVERTER_POWER_PER_SEGMENT / DC_TO_AC_EFFICIENCY,
+                    )
+                    inverter_output_ac = -inverter_to_battery_dc * DC_TO_AC_EFFICIENCY
+                else:
+                    # Any excess solar is output from the inverter
+                    inverter_to_battery_dc = 0
+                    inverter_output_ac = (segment.generation - solar_to_battery) * DC_TO_AC_EFFICIENCY
+                battery_discharge = -(solar_to_battery + inverter_to_battery_dc)
+
+            elif action.action_type == ActionType.DISCHAGE:
+                # The inverter exports at the set rate, using as much solar as possible, and the rest from battery.
+                # Load is taken from the exported energy, with the rest going to the grid
+                inverter_max_export_dc = INVERTER_POWER_PER_SEGMENT / DC_TO_AC_EFFICIENCY
+                solar_to_inverter_export = min(segment.generation, inverter_max_export_dc)
+                # The battery dischages to make up the gap if possible. Any excess generation goes into the battery
+                battery_discharge = clamp(
+                    inverter_max_export_dc - solar_to_inverter_export,
+                    -(BATTERY_CAPACITY * action.max_soc - battery_level),
+                    battery_level - BATTERY_CAPACITY * action.min_soc,
+                )
+                inverter_output_ac = (solar_to_battery + max(0, battery_discharge)) * DC_TO_AC_EFFICIENCY
+
+            battery_level -= battery_discharge
             assert battery_level >= 0
 
-            this_feed_in_cost = solar_to_grid * segment.feed_in_tariff
+            if inverter_output_ac > segment.consumption:
+                feed_in_amount = inverter_output_ac - segment.consumption
+                import_amount = 0.0
+            else:
+                feed_in_amount = 0.0
+                import_amount = segment.consumption - inverter_output_ac
+
+            this_feed_in_cost = feed_in_amount * segment.feed_in_tariff
             feed_in_cost += this_feed_in_cost
-            import_amount = grid_to_load + grid_to_battery_dc / AC_TO_DC_EFFICIENCY
             this_import_cost = import_amount * segment.import_tariff
             import_cost += this_import_cost
 
@@ -180,7 +208,7 @@ class BatteryModel:
                     RunOutputSegment(
                         battery_level=round(battery_level, 2),
                         battery_soc=round((battery_level / BATTERY_CAPACITY) * 100),
-                        feed_in_kwh=round(solar_to_grid, 2),
+                        feed_in_kwh=round(feed_in_amount, 2),
                         import_kwh=round(import_amount, 2),
                         feed_in_cost=round(this_feed_in_cost, 2),
                         cumulative_feed_in_cost=round(feed_in_cost, 2),
@@ -211,7 +239,13 @@ class BatteryModel:
 
     def shotgun_hillclimb(self, segments: list[TimeSegment]) -> tuple[list[Action], RunOutput]:
         # visited_actions_hashes = set()
+<<<<<<< Updated upstream
+        action_type_set = (ActionType.SELF_USE, ActionType.CHARGE)
+||||||| Stash base
         action_type_set = (ActionType.SELF_USE, ActionType.CHARGE, ActionType.DISCHAGE)
+=======
+        action_type_set = (ActionType.SELF_USE, ActionType.CHARGE) # , ActionType.DISCHAGE
+>>>>>>> Stashed changes
         best_result_ever: float | None = None
         best_actions_ever: list[Action] = []
         slots = list(range(len(segments)))
