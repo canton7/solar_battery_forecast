@@ -181,13 +181,13 @@ class HassDataSource(DataSource):
 
             # We currently work with hourly data across the board. If we need to combine two half-hours with different
             # rates, take the max
-            df = df.resample("H").sum()
+            df = df.resample("h").sum()
 
             # The Octopu integration currently works in pounds. Everything internally expects pence.
             df *= 100
 
             # Forecast might not be long enough. Fill with data 24h ago if that's the case
-            extended_df = df.reindex(pd.date_range(df.iloc[0].name, this_hour_utc + period, freq="H"))  # type: ignore
+            extended_df = df.reindex(pd.date_range(df.iloc[0].name, this_hour_utc + period, freq="h"))  # type: ignore
             while extended_df[column].isnull().any():
                 extended_df = extended_df.fillna(extended_df.shift(24))
             extended_df = extended_df.loc[this_hour_utc : this_hour_utc + period]  # type: ignore

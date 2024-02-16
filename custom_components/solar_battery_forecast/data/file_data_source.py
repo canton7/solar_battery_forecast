@@ -25,16 +25,16 @@ class FileDataSource(DataSource):
         return df.asfreq(freq)
 
     async def load_sensor_history(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:
-        return self._deserialize(self._file["load_history"], now.tzinfo, "H")
+        return self._deserialize(self._file["load_history"], now.tzinfo, "h")
 
     def get_soc(self) -> float | None:
         return self._file["soc"]
 
     def load_solar_forecast(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:
-        return self._deserialize(self._file["solar_forecast"], now.tzinfo, "H")
+        return self._deserialize(self._file["solar_forecast"], now.tzinfo, "h")
 
     def load_electricity_rates(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:
-        return self._deserialize(self._file["electricity_rates"], now.tzinfo, "H")
+        return self._deserialize(self._file["electricity_rates"], now.tzinfo, "h")
 
     def load_load_forecast(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:
-        return self._deserialize(self._file["load_forecast"], now.tzinfo, "H")
+        return self._deserialize(self._file["load_forecast"], now.tzinfo, "h")
