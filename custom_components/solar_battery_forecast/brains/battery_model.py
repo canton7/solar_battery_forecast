@@ -147,7 +147,7 @@ class BatteryModel:
                     excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
                     battery_discharge = -clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, excess_solar_dc)
                     inverter_output_ac = (
-                        segment.consumption + (excess_solar_dc - battery_discharge) * DC_TO_AC_EFFICIENCY
+                        segment.consumption + (excess_solar_dc + battery_discharge) * DC_TO_AC_EFFICIENCY
                     )
                 else:
                     # Generation doesn't cover consumption: output all generation + some battery
@@ -439,7 +439,8 @@ class BatteryModel:
 
         # The step above will have removed any unnecessary charge periods (which do pop up, as a means to prevent
         # discharge). However, we do want charge periods to extend backwards as far as possible. If we have a 3-hour
-        # cheap period say, we want the charge period to extend across all of it
+        # cheap period say, we want the charge period to extend across all of it.
+        # The "copy last action" step above will already have extended it forwards
         ends_of_charge_periods = [
             i
             for i in range(1, len(best_actions_ever))
@@ -457,6 +458,30 @@ class BatteryModel:
                     best_actions_ever[candidate] = prev_action
                     break
 
+        # We want to move discharge periods as late as possible. This is so that there's a bit more of a buffer in case
+        # load is higher than expected.
+        # We've already extended the period as late as we can, so just try and chop off the start.
+        start_of_discharge_periods = [
+            i
+            for i in range(0, len(best_actions_ever))
+            if best_actions_ever[i].action_type == ActionType.DISCHAGE
+            and (i == 0 or best_actions_ever[i - 1].action_type != ActionType.DISCHAGE)
+        ]
+        for start_of_discharge_period in start_of_discharge_periods:
+            for candidate in range(start_of_discharge_period, len(best_actions_ever)):
+                if best_actions_ever[candidate].action_type != ActionType.DISCHAGE:
+                    break
+                prev_action = best_actions_ever[candidate]
+                best_actions_ever[candidate] = best_actions_ever[candidate].clone()
+                # The closest we can get to discharge using self-use is a low min/max to prevent charge
+                best_actions_ever[candidate].action_type = ActionType.SELF_USE
+                best_actions_ever[candidate].min_soc = MIN_SOC_PERMITTED_PERCENT
+                best_actions_ever[candidate].max_soc = MIN_SOC_PERMITTED_PERCENT
+                new_result = self.run(segments, best_actions_ever)
+                if self.is_better(best_result_ever, new_result, margin=MARGIN):
+                    best_actions_ever[candidate] = prev_action
+                    break
+
         # We might have made the result slightly worse. Re-calculate
         # (we don't do this as we go, to make sure that we never get more than MARGIN away from the original best case)
         best_result_ever = self.run(segments, best_actions_ever)
@@ -468,22 +493,6 @@ class BatteryModel:
             )
             if not changed:
                 break
-
-        # Now we want to shorten charge periods. The problem is that if generation is predicted to be low, the model
-        # can extend an overnight charging period until mid-morning. However there's no advantage in doing this:
-        # generation might be higher than expected in which case this is detremental, and using the grid later in
-        # the day is no worse than earlier in the day.
-        # Run this after optimizing min/max socs. Sometimes the model will insert a small "draw from grid not batteries"
-        # after a charge, because it doesn't have the control to charge to exactly the right amount. The min/max socs
-        # fixes that, and this step will remove the unnecessary charge.
-        # However, I think this does more harm than good, as it will sometimes remove charges within a charge period.
-        # for slot in range(len(best_actions_ever) - 1, -1, -1):
-        #     if best_actions_ever[slot].charge:
-        #         best_actions_ever[slot].charge = False
-        #         new_result = self.run(segments, best_actions_ever, initial_battery)
-        #         print(f"{slot}: {best_result_ever} -> {new_result}")
-        #         if self.is_better(best_result_ever, new_result, margin=MARGIN):
-        #             best_actions_ever[slot].charge = True
 
         for i, action in enumerate(best_actions_ever):
             print(f"{i}: {action}")
