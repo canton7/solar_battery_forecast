@@ -20,8 +20,6 @@ class OptionsHandler(FlowHandlerMixin, config_entries.OptionsFlow):
         return await self.async_step_api_details(self._config.data)
 
     def save(self, config: UserConfig) -> FlowResult:
-        self.hass.config_entries.async_update_entry(
-            title=CONFIG_ENTRY_TITLE, data=config, options=self.config_entry.options
-        )
+        self.hass.config_entries.async_update_entry(title=CONFIG_ENTRY_TITLE, data=config, options=self._config.options)
 
         return self.async_create_entry(title="", data={})
