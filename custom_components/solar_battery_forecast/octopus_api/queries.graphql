@@ -1,0 +1,52 @@
+mutation Authenticate($apiKey: String!) {
+  obtainKrakenToken(input: {APIKey: $apiKey}) {
+    token
+  }
+}
+
+query AccountQuery($accountNumber: String!) {
+  account(accountNumber: $accountNumber) {
+    electricityAgreements(active: true) {
+      tariff {
+        ... on HalfHourlyTariff {
+          id
+          unitRates {
+            value
+            validTo
+            validFrom
+          }
+        }
+      }
+      meterPoint {
+        meters {
+          meterType
+          smartExportElectricityMeter {
+            deviceId
+          }
+          smartImportElectricityMeter {
+            deviceId
+          }
+        }
+      }
+    }
+  }
+}
+
+query SavingSessionsQuery($accountNumber: String!) {
+  savingSessions {
+    events(getDevEvents: false) {
+      id
+      startAt
+      endAt
+      rewardPerKwhInOctoPoints
+    }
+    account(accountNumber: $accountNumber) {
+      hasJoinedCampaign
+      joinedEvents {
+        eventId
+        startAt
+        endAt
+      }
+    }
+  }
+}

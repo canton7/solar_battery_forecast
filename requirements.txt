@@ -6,6 +6,7 @@ pre-commit==3.3.3
 black==23.3.0
 ruff==0.0.275
 
+ariadne==0.22
 statsmodels==0.14.0
 matplotlib==3.7.2
 pandas-stubs # Version should automatically match pandas version

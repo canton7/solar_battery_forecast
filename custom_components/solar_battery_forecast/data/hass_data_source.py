@@ -12,15 +12,23 @@ from homeassistant.components.recorder import statistics
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt
 
-from ..main_config import MainConfig
+from ..octopus_api.client import OctopusApiClient
 from .data_source import DataSource
+from .main_config import MainConfig
+from .user_config import UserConfig
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class HassDataSource(DataSource):
-    def __init__(self, hass: HomeAssistant, config: MainConfig) -> None:
+    def __init__(
+        self, hass: HomeAssistant, config: MainConfig, user_config: UserConfig
+    ) -> None:
         self._hass = hass
+        self._octopus_client = OctopusApiClient(
+            user_config["octopus_account_id"], user_config["octopus_api_key"]
+        )
+
         self._load_power_sum_sensor = config["load_power_sum_sensor"]
         self._soc_sensor = config["soc_sensor"]
         self._solar_forecast_sensors = [
@@ -28,12 +36,14 @@ class HassDataSource(DataSource):
             config["solar_forecast_tomorrow_sensor"],
             config["solar_forecast_d3_sensor"],
         ]
-        self._import_rate_sensor = config["electricity_import_rate_sensor"]
-        self._feed_in_rate_sensor = config["electricity_feed_in_rate_sensor"]
 
-    async def load_sensor_history(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
+    async def load_sensor_history(
+        self, now: datetime, period: timedelta
+    ) -> pd.DataFrame | None:
         now_utc = dt.as_utc(now)
-        this_hour_utc = datetime(now_utc.year, now_utc.month, now_utc.day, now_utc.hour, tzinfo=timezone.utc)
+        this_hour_utc = datetime(
+            now_utc.year, now_utc.month, now_utc.day, now_utc.hour, tzinfo=timezone.utc
+        )
         start = now - period
 
         r = recorder.get_instance(self._hass)
@@ -78,7 +88,9 @@ class HassDataSource(DataSource):
                     # If the current sum is None, then yield np.nan
                     yield {
                         "start": dt.as_local(dt.utc_from_timestamp(stat["start"])),
-                        "value": stat_sum - prev_sum if stat_sum is not None else np.nan,
+                        "value": (
+                            stat_sum - prev_sum if stat_sum is not None else np.nan
+                        ),
                     }
                     if stat_sum is not None:
                         prev_sum = stat_sum
@@ -124,31 +136,47 @@ class HassDataSource(DataSource):
     def get_soc(self) -> float | None:
         state = self._hass.states.get(self._soc_sensor)
         if state is None:
-            _LOGGER.warning("SoC sensor '%s' is disabled or not yet loaded", self._soc_sensor)
+            _LOGGER.warning(
+                "SoC sensor '%s' is disabled or not yet loaded", self._soc_sensor
+            )
             return None
         str_value = state.state
         if str_value in [None, "unknown", "unavailable"]:
-            _LOGGER.warning("SoC sensor '%s' has value '%s'", self._soc_sensor, str_value)
+            _LOGGER.warning(
+                "SoC sensor '%s' has value '%s'", self._soc_sensor, str_value
+            )
             return None
         try:
             float_value = float(str_value)
             return float_value
         except ValueError:
-            _LOGGER.warning("SoC sensor '%s' has non-floating-point value '%s'", self._soc_sensor, str_value)
+            _LOGGER.warning(
+                "SoC sensor '%s' has non-floating-point value '%s'",
+                self._soc_sensor,
+                str_value,
+            )
             return None
 
-    def load_solar_forecast(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
+    def load_solar_forecast(
+        self, now: datetime, period: timedelta
+    ) -> pd.DataFrame | None:
         this_hour = datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo)
 
         periods = []
         for forecast_sensor in self._solar_forecast_sensors:
             state = self._hass.states.get(forecast_sensor)
             if state is None:
-                _LOGGER.warning("Solar forecast sensor '%s' is disabled or not yet loaded", forecast_sensor)
+                _LOGGER.warning(
+                    "Solar forecast sensor '%s' is disabled or not yet loaded",
+                    forecast_sensor,
+                )
                 return None
             forecast = state.attributes.get("detailedHourly", None)
             if forecast is None:
-                _LOGGER.warning("Solar forecast sensor '%s' has no attribute 'detailedHourly", forecast_sensor)
+                _LOGGER.warning(
+                    "Solar forecast sensor '%s' has no attribute 'detailedHourly",
+                    forecast_sensor,
+                )
                 return None
             periods.extend(forecast)
 
@@ -162,45 +190,23 @@ class HassDataSource(DataSource):
         df = df.loc[this_hour : this_hour + period]  # type: ignore
         return df
 
-    def load_electricity_rates(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
-        this_hour_utc = dt.as_utc(datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo))
+    async def load_electricity_rates(
+        self, now: datetime, period: timedelta
+    ) -> pd.DataFrame | None:
+        this_hour_utc = dt.as_utc(
+            datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo)
+        )
 
-        def load(entity_id: str, name: str, column: str) -> pd.DataFrame | None:
-            state = self._hass.states.get(entity_id)
-            if state is None:
-                # Disabled
-                _LOGGER.warning("%s rate sensor '%s' is disabled or not yet loaded", name, entity_id)
-                return None
-            rates = state.attributes.get("rates", None)
-            if rates is None:
-                _LOGGER.warning("%s rate sensor '%s' has no attribute 'rates", name, entity_id)
-                return None
+        tariff = await self._octopus_client.get_tariff()
 
-            df = pd.DataFrame.from_records(rates, index="start", exclude=["end", "is_capped"]).rename(
-                columns={"value_inc_vat": column}
-            )
-            df.index.rename("start", inplace=True)
+        # We currently work with hourly data across the board. If we need to combine two half-hours with different
+        # rates, take the max
+        tariff = tariff.resample("h").sum()
 
-            # We currently work with hourly data across the board. If we need to combine two half-hours with different
-            # rates, take the max
-            df = df.resample("h").sum()
+        # Forecast might not be long enough. Fill with data 24h ago if that's the case
+        extended_df = tariff.reindex(pd.date_range(tariff.iloc[0].name, this_hour_utc + period, freq="h"))  # type: ignore
+        while extended_df.isnull().any().any():
+            extended_df = extended_df.fillna(extended_df.shift(24))
+        extended_df = extended_df.loc[this_hour_utc : this_hour_utc + period]  # type: ignore
 
-            # The Octopu integration currently works in pounds. Everything internally expects pence.
-            df *= 100
-
-            # Forecast might not be long enough. Fill with data 24h ago if that's the case
-            extended_df = df.reindex(pd.date_range(df.iloc[0].name, this_hour_utc + period, freq="h"))  # type: ignore
-            while extended_df[column].isnull().any():
-                extended_df = extended_df.fillna(extended_df.shift(24))
-            extended_df = extended_df.loc[this_hour_utc : this_hour_utc + period]  # type: ignore
-
-            return extended_df
-
-        feed_in_rates = load(self._feed_in_rate_sensor, "Feed-in", "feed_in_tariff")
-        import_rates = load(self._import_rate_sensor, "Import", "import_tariff")
-
-        if feed_in_rates is None or import_rates is None:
-            return None
-
-        combined = feed_in_rates.combine_first(import_rates)
-        return combined
+        return extended_df
