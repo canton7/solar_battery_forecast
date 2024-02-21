@@ -1,0 +1,28 @@
+{
+    "config": {
+        "step": {
+            "api_details": {
+                "description": "Please enter your Octopus API details",
+                "data": {
+                    "octopus_account_id": "Octopus Account ID",
+                    "octopus_api_key": "Octopus API Key"
+                }
+            }
+        },
+        "error": {},
+        "abort": {
+            "already_configured": "You can only set up this integration once. If you need to reconfigure, click \"CONFIGURE\" or delete and then add again."
+        }
+    },
+    "options": {
+        "step": {
+            "api_details": {
+                "description": "Please enter your Octopus API details",
+                "data": {
+                    "octopus_account_id": "Octopus Account ID",
+                    "octopus_api_key": "Octopus API Key"
+                }
+            }
+        }
+    }
+}
