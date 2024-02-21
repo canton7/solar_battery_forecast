@@ -10,7 +10,7 @@ from homeassistant import data_entry_flow
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import config_validation as cv
 
-from ..data.config import Config
+from ..data.user_config import UserConfig
 
 if TYPE_CHECKING:
     _FlowHandlerMixinBase = data_entry_flow.FlowHandler
@@ -62,12 +62,12 @@ class FlowHandlerMixin(ABC, _FlowHandlerMixinBase):
         )
 
     async def async_step_api_details(
-        self, user_input: dict[str, Any] | None = None, config: Config | None = None
+        self, user_input: dict[str, Any] | None = None, config: UserConfig | None = None
     ) -> FlowResult:
         """Handle a flow initialized by the user."""
 
         async def body(user_input: dict[str, Any]) -> FlowResult:
-            config = Config(user_input)
+            config = UserConfig(user_input)
             return self.save(config)
 
         schema = vol.Schema(
@@ -81,7 +81,7 @@ class FlowHandlerMixin(ABC, _FlowHandlerMixinBase):
         return await self.with_default_form(body, user_input, "api_details", schema, suggested_values=suggested_values)
 
     @abstractmethod
-    def save(self, config: Config) -> FlowResult:
+    def save(self, config: UserConfig) -> FlowResult:
         pass
 
 

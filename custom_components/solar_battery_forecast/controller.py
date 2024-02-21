@@ -16,6 +16,7 @@ from .brains.battery_model import TimeSegment
 from .brains.load_forecaster import LoadForecaster
 from .data.data_source import DataSource
 from .data.hass_data_source import HassDataSource
+from .data.user_config import UserConfig
 from .entities.entity_controller import EntityController
 from .entities.entity_controller import EntityControllerState
 from .entities.entity_controller import EntityControllerSubscriber
@@ -38,6 +39,7 @@ class Controller(EntityController):
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
         self._hass = hass
         self._config_entry = config_entry
+        self._config = UserConfig(config_entry.data)
 
         self._entities: set[EntityControllerSubscriber] = set()
         self._unload: list[Callable[[], None]] = []

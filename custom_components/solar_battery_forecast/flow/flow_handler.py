@@ -6,7 +6,7 @@ from homeassistant.data_entry_flow import FlowResult
 
 from ..const import CONFIG_ENTRY_TITLE
 from ..const import DOMAIN
-from ..data.config import Config
+from ..data.user_config import UserConfig
 from .flow_handler_mixin import FlowHandlerMixin
 from .options_handler import OptionsHandler
 
@@ -22,7 +22,7 @@ class FlowHandler(FlowHandlerMixin, config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_api_details()
 
-    def save(self, config: Config) -> FlowResult:
+    def save(self, config: UserConfig) -> FlowResult:
         return self.async_create_entry(title=CONFIG_ENTRY_TITLE, data=config)
 
     @staticmethod
