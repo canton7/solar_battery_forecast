@@ -16,11 +16,11 @@ from .brains.battery_model import TimeSegment
 from .brains.load_forecaster import LoadForecaster
 from .data.data_source import DataSource
 from .data.hass_data_source import HassDataSource
+from .data.main_config import MainConfig
 from .data.user_config import UserConfig
 from .entities.entity_controller import EntityController
 from .entities.entity_controller import EntityControllerState
 from .entities.entity_controller import EntityControllerSubscriber
-from .main_config import MainConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,12 +39,12 @@ class Controller(EntityController):
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
         self._hass = hass
         self._config_entry = config_entry
-        self._config = UserConfig(config_entry.data)
+        self._user_config = UserConfig(config_entry.data)
 
         self._entities: set[EntityControllerSubscriber] = set()
         self._unload: list[Callable[[], None]] = []
 
-        self.data_source: DataSource = HassDataSource(hass, CONFIG)
+        self.data_source: DataSource = HassDataSource(hass, CONFIG, self._user_config)
         self._load_forecaster = LoadForecaster()
 
         self._state = EntityControllerState()
@@ -69,7 +69,9 @@ class Controller(EntityController):
         self._state.last_update = now
         await self._create_load_forecast(now)
         self.state.solar_forecast = self.data_source.load_solar_forecast(now, load_forecaster.PREDICTION_PERIOD)
-        self.state.electricity_rates = self.data_source.load_electricity_rates(now, load_forecaster.PREDICTION_PERIOD)
+        self.state.electricity_rates = await self.data_source.load_electricity_rates(
+            now, load_forecaster.PREDICTION_PERIOD
+        )
         await self._run_model(now)
         self._update_entities()
 

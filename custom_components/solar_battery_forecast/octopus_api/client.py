@@ -63,18 +63,11 @@ class OctopusApiClient:
                     idx = pd.date_range(start=x.valid_from, end=x.valid_to, freq="30min", inclusive="left")
                     tariff.append(pd.Series(np.repeat(x.value, len(idx)), index=idx))
 
-        df = pd.DataFrame(data={"import": pd.concat(import_tariffs), "export": pd.concat(export_tariffs)})
+        df = pd.DataFrame(
+            data={"import_tariff": pd.concat(import_tariffs), "feed_in_tariff": pd.concat(export_tariffs)}
+        )
         return df
-
-
-async def test():
-    client = OctopusApiClient("", "")
-    print(await client.get_tariff())
 
 
 class AuthenticationFailedError(Exception):
     pass
-
-
-loop = asyncio.get_event_loop()
-loop.run_until_complete(test())
