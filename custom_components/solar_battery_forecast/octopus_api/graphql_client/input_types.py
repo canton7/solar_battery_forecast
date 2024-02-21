@@ -1183,22 +1183,68 @@ class StoreElectricJuicePaymentInstructionInput(BaseModel):
     vendor_reference: str = Field(alias="vendorReference")
 
 
-class CreateEvPublicChargingAgreementInput(BaseModel):
+class CreateElectricJuiceAgreementInput(BaseModel):
     account_number: str = Field(alias="accountNumber")
-    external_account_id: str = Field(alias="externalAccountId")
-    valid_from: Any = Field(alias="validFrom")
+    valid_from: Optional[Any] = Field(alias="validFrom", default=None)
 
 
-class AddEvPublicChargingTokenInput(BaseModel):
-    external_account_id: str = Field(alias="externalAccountId")
+class CreateElectricJuiceChargeCardInput(BaseModel):
+    charge_card_uid: str = Field(alias="chargeCardUid")
+    name_on_card: str = Field(alias="nameOnCard")
+    account_number: str = Field(alias="accountNumber")
+
+
+class CreateElectricJuiceChargeInput(BaseModel):
+    account_number: str = Field(alias="accountNumber")
+    charge_card_uid: Optional[str] = Field(alias="chargeCardUid", default=None)
+    period_start_at: Any = Field(alias="periodStartAt")
+    period_end_at: Any = Field(alias="periodEndAt")
+    net_amount: int = Field(alias="netAmount")
+    charge_provider: str = Field(alias="chargeProvider")
+    postcode: str
+    kwh_used: Any = Field(alias="kwhUsed")
+    price_per_kwh: Any = Field(alias="pricePerKwh")
+    additional_fees: int = Field(alias="additionalFees")
+
+
+class CreateElectricJuiceCreditInput(BaseModel):
+    account_number: str = Field(alias="accountNumber")
+    net_amount: int = Field(alias="netAmount")
+    gross_amount: int = Field(alias="grossAmount")
+    tax_amount: int = Field(alias="taxAmount")
+    note: Optional[str] = None
+    reason: AccountCreditReasonType
+
+
+class PostEVPublicChargingChargeInput(BaseModel):
     token_value: str = Field(alias="tokenValue")
-    valid_from: Any = Field(alias="validFrom")
+    line_items: List["EVPCLineItem"] = Field(alias="lineItems")
+    tax_items: List["EVPCTaxItem"] = Field(alias="taxItems")
 
 
-class ExpireEvPublicChargingTokenInput(BaseModel):
+class EVPCLineItem(BaseModel):
+    amount: int
+    period_start_at: Any = Field(alias="periodStartAt")
+    period_end_at: Any = Field(alias="periodEndAt")
+    band: ProductRateBands
+    metadata: Optional[Any] = None
+
+
+class EVPCTaxItem(BaseModel):
+    amount: int
+    amount_taxed: int = Field(alias="amountTaxed")
+    rate: Any
+    unit_type: TaxUnitType = Field(alias="unitType")
+    tax_type: str = Field(alias="taxType")
+    metadata: Optional[Any] = None
+
+
+class PostEVPublicChargingCreditInput(BaseModel):
     external_account_id: str = Field(alias="externalAccountId")
-    token_value: str = Field(alias="tokenValue")
-    valid_to: Any = Field(alias="validTo")
+    net_amount: int = Field(alias="netAmount")
+    tax_amount: int = Field(alias="taxAmount")
+    reason: AccountCreditReasonType
+    display_note: Optional[str] = Field(alias="displayNote", default=None)
 
 
 class VehicleEligibilityInputType(BaseModel):
@@ -1249,39 +1295,6 @@ class PropertyDetailsInput(BaseModel):
         alias="hasIndoorSpaceForCylinder", default=None
     )
     is_home_renovation: Optional[bool] = Field(alias="isHomeRenovation", default=None)
-
-
-class CreateElectricJuiceAgreementInput(BaseModel):
-    account_number: str = Field(alias="accountNumber")
-    valid_from: Optional[Any] = Field(alias="validFrom", default=None)
-
-
-class CreateElectricJuiceChargeCardInput(BaseModel):
-    charge_card_uid: str = Field(alias="chargeCardUid")
-    name_on_card: str = Field(alias="nameOnCard")
-    account_number: str = Field(alias="accountNumber")
-
-
-class CreateElectricJuiceChargeInput(BaseModel):
-    account_number: str = Field(alias="accountNumber")
-    charge_card_uid: Optional[str] = Field(alias="chargeCardUid", default=None)
-    period_start_at: Any = Field(alias="periodStartAt")
-    period_end_at: Any = Field(alias="periodEndAt")
-    net_amount: int = Field(alias="netAmount")
-    charge_provider: str = Field(alias="chargeProvider")
-    postcode: str
-    kwh_used: Any = Field(alias="kwhUsed")
-    price_per_kwh: Any = Field(alias="pricePerKwh")
-    additional_fees: int = Field(alias="additionalFees")
-
-
-class CreateElectricJuiceCreditInput(BaseModel):
-    account_number: str = Field(alias="accountNumber")
-    net_amount: int = Field(alias="netAmount")
-    gross_amount: int = Field(alias="grossAmount")
-    tax_amount: int = Field(alias="taxAmount")
-    note: Optional[str] = None
-    reason: AccountCreditReasonType
 
 
 class QuoteNewMeterPointsInput(BaseModel):
@@ -2187,32 +2200,19 @@ class MeterPointSwitchContext(BaseModel):
     flat_rate: Optional[bool] = Field(alias="flatRate", default=None)
 
 
-class PostEVPublicChargingChargeInput(BaseModel):
-    token_value: str = Field(alias="tokenValue")
-    line_items: List["EVPCLineItem"] = Field(alias="lineItems")
-    tax_items: List["EVPCTaxItem"] = Field(alias="taxItems")
-
-
-class EVPCLineItem(BaseModel):
-    amount: int
-    period_start_at: Any = Field(alias="periodStartAt")
-    period_end_at: Any = Field(alias="periodEndAt")
-    band: ProductRateBands
-    metadata: Optional[Any] = None
-
-
-class EVPCTaxItem(BaseModel):
-    amount: int
-    amount_taxed: int = Field(alias="amountTaxed")
-    rate: Any
-    unit_type: TaxUnitType = Field(alias="unitType")
-    tax_type: str = Field(alias="taxType")
-    metadata: Optional[Any] = None
-
-
-class PostEVPublicChargingCreditInput(BaseModel):
+class CreateEvPublicChargingAgreementInput(BaseModel):
+    account_number: str = Field(alias="accountNumber")
     external_account_id: str = Field(alias="externalAccountId")
-    net_amount: int = Field(alias="netAmount")
-    tax_amount: int = Field(alias="taxAmount")
-    reason: AccountCreditReasonType
-    display_note: Optional[str] = Field(alias="displayNote", default=None)
+    valid_from: Any = Field(alias="validFrom")
+
+
+class AddEvPublicChargingTokenInput(BaseModel):
+    external_account_id: str = Field(alias="externalAccountId")
+    token_value: str = Field(alias="tokenValue")
+    valid_from: Any = Field(alias="validFrom")
+
+
+class ExpireEvPublicChargingTokenInput(BaseModel):
+    external_account_id: str = Field(alias="externalAccountId")
+    token_value: str = Field(alias="tokenValue")
+    valid_to: Any = Field(alias="validTo")

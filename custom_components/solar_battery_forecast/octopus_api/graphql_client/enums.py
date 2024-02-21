@@ -805,6 +805,7 @@ class AccountReminderTypes(str, Enum):
     MAIL_RETURNED = "MAIL_RETURNED"
     MAIL_FAILED = "MAIL_FAILED"
     DUPLICATE_CARD_FINGERPRINTs = "DUPLICATE_CARD_FINGERPRINTs"
+    WATER_METER_READING_ISSUE = "WATER_METER_READING_ISSUE"
 
 
 class ExternalAccountEventCategory(str, Enum):
@@ -1283,15 +1284,15 @@ class Songs(str, Enum):
 
 
 class AccountUserRoleEnum(str, Enum):
-    TRACED = "TRACED"
     ADMIN = "ADMIN"
     LOYALTY_POINT_USER = "LOYALTY_POINT_USER"
+    TRACED = "TRACED"
 
 
 class PortfolioUserRoleEnum(str, Enum):
-    TRACED = "TRACED"
     ADMIN = "ADMIN"
     LOYALTY_POINT_USER = "LOYALTY_POINT_USER"
+    TRACED = "TRACED"
 
 
 class GreennessForecastIndex(str, Enum):
@@ -2057,6 +2058,25 @@ class DebtCollectionProceedingStopReason(str, Enum):
     QUERY = "QUERY"
 
 
+class CurrencyOptions(str, Enum):
+    UK_PENCE = "UK_PENCE"
+
+
+class ProductRateBands(str, Enum):
+    CONSUMPTION = "CONSUMPTION"
+    TIME = "TIME"
+    FEE = "FEE"
+
+
+class TaxUnitType(str, Enum):
+    PROPORTION = "PROPORTION"
+    CURRENCY_PER_KWH = "CURRENCY_PER_KWH"
+
+
+class AccountCreditReasonType(str, Enum):
+    EXTERNAL_REFERRAL_CREDIT = "EXTERNAL_REFERRAL_CREDIT"
+
+
 class EnergyProductDirection(str, Enum):
     IMPORT = "IMPORT"
     EXPORT = "EXPORT"
@@ -2258,10 +2278,6 @@ class HeatPumpHeatType(str, Enum):
     OIL_BOILER = "OIL_BOILER"
     ELECTRIC_STORAGE_HEATER = "ELECTRIC_STORAGE_HEATER"
     OTHER = "OTHER"
-
-
-class CurrencyOptions(str, Enum):
-    UK_PENCE = "UK_PENCE"
 
 
 class MeterType(str, Enum):
@@ -2470,18 +2486,3 @@ class QuotePaymentMethodChoices(str, Enum):
     CREDITCARD = "CREDITCARD"
     ONRECEIPT = "ONRECEIPT"
     PREPAYMENT = "PREPAYMENT"
-
-
-class ProductRateBands(str, Enum):
-    CONSUMPTION = "CONSUMPTION"
-    TIME = "TIME"
-    FEE = "FEE"
-
-
-class TaxUnitType(str, Enum):
-    PROPORTION = "PROPORTION"
-    CURRENCY_PER_KWH = "CURRENCY_PER_KWH"
-
-
-class AccountCreditReasonType(str, Enum):
-    EXTERNAL_REFERRAL_CREDIT = "EXTERNAL_REFERRAL_CREDIT"
