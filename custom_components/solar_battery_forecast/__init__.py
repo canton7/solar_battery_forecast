@@ -13,7 +13,7 @@ from homeassistant.util import dt
 from .const import DOMAIN
 from .controller import Controller
 
-PLATFORMS: list[str] = ["sensor"]
+PLATFORMS: list[str] = ["sensor", "time", "switch"]
 
 _LOGGER = logging.getLogger(__name__)
 
