@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 
 import numpy as np
@@ -10,11 +11,9 @@ from .graphql_client.exceptions import GraphQLClientGraphQLMultiError
 
 URL_BASE = "https://api.octopus.energy/v1/graphql/"
 USER_AGENT = "SolarBatteryForecast"
-TOKEN_EXPIRY_SECS = 60 * 60
+TOKEN_EXPIRY_SECS = 60 * 10
 
-
-class Tariff:
-    pass
+_LOGGER = logging.getLogger(__name__)
 
 
 class OctopusApiClient:
@@ -29,13 +28,14 @@ class OctopusApiClient:
         now = time.monotonic()
         async with self._authed_client_lock:
             if self._authed_client is None or now - self._authed_client_created > TOKEN_EXPIRY_SECS:
+                _LOGGER.info("Client is %ss old. Refreshing", now - self._authed_client_created)
                 client = Client(URL_BASE, headers={"User-Agent": USER_AGENT})
                 try:
                     response = await client.authenticate(self._api_key)
                     self._authed_client = Client(
                         URL_BASE, headers={"User-Agent": USER_AGENT, "Authorization": response.token}
                     )
-                    self._authed_client_created = time.monotonic()
+                    self._authed_client_created = now
                 except GraphQLClientGraphQLMultiError as ex:
                     raise AuthenticationFailedError() from ex
             return self._authed_client
