@@ -317,7 +317,8 @@ class BatteryModel:
                                 else (MIN_SOC_PERMITTED_PERCENT, 100)
                             )
                         elif new_action_type == ActionType.DISCHAGE:
-                            new_min_soc_percents = range(MIN_SOC_PERMITTED_PERCENT, 101, SOC_STEP_PERCENT)
+                            # Don't allow a discharge down to 100%: the model tries to use it as a way to keep charge
+                            new_min_soc_percents = range(MIN_SOC_PERMITTED_PERCENT, 99, SOC_STEP_PERCENT)
 
                         for new_min_soc_percent in new_min_soc_percents:
                             action.min_soc = new_min_soc_percent / 100
