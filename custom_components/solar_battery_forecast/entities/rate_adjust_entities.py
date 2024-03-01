@@ -71,6 +71,7 @@ class RateAdjustValueEntity(EntityMixin, NumberEntity):
 
         self._attr_native_min_value = 0.0
         self._attr_native_step = 0.01
+        self._attr_native_unit_of_measurement = "p/kWh"
         self._attr_mode = NumberMode.BOX
 
     @property
