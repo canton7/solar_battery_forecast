@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,7 @@ from .graphql_client.exceptions import GraphQLClientGraphQLMultiError
 URL_BASE = "https://api.octopus.energy/v1/graphql/"
 USER_AGENT = "SolarBatteryForecast"
 TOKEN_EXPIRY_SECS = 60 * 10
+OCTOPOINTS_PER_PENCE = 8
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,6 +68,26 @@ class OctopusApiClient:
         df = pd.DataFrame(
             data={"import_tariff": pd.concat(import_tariffs), "feed_in_tariff": pd.concat(export_tariffs)}
         )
+
+        # During a saving session, we save money based on the net amount that we export compared to normal. Fudge the
+        # tariffs under the assumption that the baseline is 0, and set the same rate as the import and feed-in. This
+        # isn't strictly true, as we're not actually penalised for importing more than we export in practice, but it's
+        # good enough for the model
+        saving_sessions = await client.saving_sessions_query(self._account_number)
+        joined_event_ids = set()
+        if saving_sessions.account.has_joined_campaign:
+            for event in saving_sessions.account.joined_events:
+                joined_event_ids.add(event.event_id)
+
+        for saving_session in saving_sessions.events:
+            if saving_session.id not in joined_event_ids:
+                continue
+
+            start_at = datetime.fromisoformat(saving_session.start_at)
+            end_at = datetime.fromisoformat(saving_session.end_at)
+            benefit = saving_session.reward_per_kwh_in_octo_points / OCTOPOINTS_PER_PENCE
+            df[start_at:end_at] += benefit
+
         return df
 
 

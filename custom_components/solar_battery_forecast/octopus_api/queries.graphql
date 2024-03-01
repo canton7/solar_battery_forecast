@@ -44,8 +44,6 @@ query SavingSessionsQuery($accountNumber: String!) {
       hasJoinedCampaign
       joinedEvents {
         eventId
-        startAt
-        endAt
       }
     }
   }
