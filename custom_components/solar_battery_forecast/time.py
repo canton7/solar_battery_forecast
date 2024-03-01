@@ -4,8 +4,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .controller import Controller
-from .entities.rate_adjust_entities import ImportAdjustEndEntity
-from .entities.rate_adjust_entities import ImportAdjustStartEntity
+from .entities.rate_adjust_entities import RateAdjustEndEntity
+from .entities.rate_adjust_entities import RateAdjustStartEntity
 
 
 async def async_setup_entry(
@@ -15,4 +15,4 @@ async def async_setup_entry(
 ) -> None:
     controller: Controller = hass.data[DOMAIN][entry.entry_id]["controller"]
 
-    async_add_entities([ImportAdjustStartEntity(controller), ImportAdjustEndEntity(controller)])
+    async_add_entities([RateAdjustStartEntity(controller), RateAdjustEndEntity(controller)])

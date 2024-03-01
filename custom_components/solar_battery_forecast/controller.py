@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from datetime import timedelta
+from datetime import timezone
 from typing import Callable
 
 import pandas as pd
@@ -21,6 +22,7 @@ from .data.user_config import UserConfig
 from .entities.entity_controller import EntityController
 from .entities.entity_controller import EntityControllerState
 from .entities.entity_controller import EntityControllerSubscriber
+from .entities.entity_controller import RateOverrides
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +50,7 @@ class Controller(EntityController):
         self._load_forecaster = LoadForecaster()
 
         self._state = EntityControllerState()
+        self._rate_overrides = RateOverrides()
 
         async def _refresh(datetime: datetime) -> None:
             # Create a new initial forecast at midnight
@@ -63,17 +66,38 @@ class Controller(EntityController):
     def config_entry(self) -> ConfigEntry:
         return self._config_entry
 
+    @property
+    def rate_overrides(self) -> RateOverrides:
+        return self._rate_overrides
+
     async def load(self, now: datetime) -> None:
         _LOGGER.info("Reloading forecasts")
         now = dt.as_local(now)
         self._state.last_update = now
         await self._create_load_forecast(now)
-        self.state.solar_forecast = self.data_source.load_solar_forecast(now, load_forecaster.PREDICTION_PERIOD)
-        self.state.electricity_rates = await self.data_source.load_electricity_rates(
-            now, load_forecaster.PREDICTION_PERIOD
-        )
+        self._state.solar_forecast = self.data_source.load_solar_forecast(now, load_forecaster.PREDICTION_PERIOD)
+
+        electricity_rates = await self.data_source.load_electricity_rates(now, load_forecaster.PREDICTION_PERIOD)
+        if electricity_rates is not None:
+            self._adjust_electricity_rates(now, electricity_rates)
+        self._state.electricity_rates = electricity_rates
+
         await self._run_model(now)
         self._update_entities()
+
+    def _adjust_electricity_rates(self, now: datetime, rates: pd.DataFrame) -> None:
+        if self._rate_overrides.rate_adjust_enable:
+            start = self._rate_overrides.rate_adjust_start
+            start_datetime = now.replace(hour=start.hour, minute=start.minute, second=start.second)
+            if start_datetime < now:
+                start_datetime += timedelta(days=1)
+
+            end = self._rate_overrides.rate_adjust_end
+            end_datetime = start_datetime.replace(hour=end.hour, minute=end.minute, second=end.second)
+            if end_datetime <= start_datetime:
+                end_datetime += timedelta(days=1)
+
+            rates.loc[start_datetime:end_datetime] = self._rate_overrides.rate_adjust_value
 
     async def _create_load_forecast(self, now: datetime) -> None:
         midnight = datetime(now.year, now.month, now.day, tzinfo=now.tzinfo)
@@ -113,6 +137,14 @@ class Controller(EntityController):
             or self._state.load_forecast is None
             or self._state.solar_forecast is None
         ):
+            _LOGGER.info(
+                "Skipping forecast as some data is not present. soc: %s, rates: %s, load forecast: %s, "
+                "solar forecast: %s",
+                soc is not None,
+                self._state.electricity_rates is not None,
+                self._state.load_forecast is not None,
+                self._state.solar_forecast is not None,
+            )
             self._state.current_action = None
             self._state.battery_forecast = None
             if is_midnight:
@@ -154,6 +186,9 @@ class Controller(EntityController):
 
         if is_midnight:
             self._state.initial_battery_forecast = battery_forecast.iloc[:24]
+
+    async def reload(self) -> None:
+        await self.load(datetime.now(timezone.utc))
 
     def unload(self) -> None:
         for u in self._unload:

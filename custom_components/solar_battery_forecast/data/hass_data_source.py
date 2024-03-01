@@ -21,13 +21,9 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class HassDataSource(DataSource):
-    def __init__(
-        self, hass: HomeAssistant, config: MainConfig, user_config: UserConfig
-    ) -> None:
+    def __init__(self, hass: HomeAssistant, config: MainConfig, user_config: UserConfig) -> None:
         self._hass = hass
-        self._octopus_client = OctopusApiClient(
-            user_config["octopus_account_id"], user_config["octopus_api_key"]
-        )
+        self._octopus_client = OctopusApiClient(user_config["octopus_account_id"], user_config["octopus_api_key"])
 
         self._load_power_sum_sensor = config["load_power_sum_sensor"]
         self._soc_sensor = config["soc_sensor"]
@@ -37,13 +33,9 @@ class HassDataSource(DataSource):
             config["solar_forecast_d3_sensor"],
         ]
 
-    async def load_sensor_history(
-        self, now: datetime, period: timedelta
-    ) -> pd.DataFrame | None:
+    async def load_sensor_history(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
         now_utc = dt.as_utc(now)
-        this_hour_utc = datetime(
-            now_utc.year, now_utc.month, now_utc.day, now_utc.hour, tzinfo=timezone.utc
-        )
+        this_hour_utc = datetime(now_utc.year, now_utc.month, now_utc.day, now_utc.hour, tzinfo=timezone.utc)
         start = now - period
 
         r = recorder.get_instance(self._hass)
@@ -88,9 +80,7 @@ class HassDataSource(DataSource):
                     # If the current sum is None, then yield np.nan
                     yield {
                         "start": dt.as_local(dt.utc_from_timestamp(stat["start"])),
-                        "value": (
-                            stat_sum - prev_sum if stat_sum is not None else np.nan
-                        ),
+                        "value": (stat_sum - prev_sum if stat_sum is not None else np.nan),
                     }
                     if stat_sum is not None:
                         prev_sum = stat_sum
@@ -136,15 +126,11 @@ class HassDataSource(DataSource):
     def get_soc(self) -> float | None:
         state = self._hass.states.get(self._soc_sensor)
         if state is None:
-            _LOGGER.warning(
-                "SoC sensor '%s' is disabled or not yet loaded", self._soc_sensor
-            )
+            _LOGGER.warning("SoC sensor '%s' is disabled or not yet loaded", self._soc_sensor)
             return None
         str_value = state.state
         if str_value in [None, "unknown", "unavailable"]:
-            _LOGGER.warning(
-                "SoC sensor '%s' has value '%s'", self._soc_sensor, str_value
-            )
+            _LOGGER.warning("SoC sensor '%s' has value '%s'", self._soc_sensor, str_value)
             return None
         try:
             float_value = float(str_value)
@@ -157,9 +143,7 @@ class HassDataSource(DataSource):
             )
             return None
 
-    def load_solar_forecast(
-        self, now: datetime, period: timedelta
-    ) -> pd.DataFrame | None:
+    def load_solar_forecast(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
         this_hour = datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo)
 
         periods = []
@@ -190,18 +174,14 @@ class HassDataSource(DataSource):
         df = df.loc[this_hour : this_hour + period]  # type: ignore
         return df
 
-    async def load_electricity_rates(
-        self, now: datetime, period: timedelta
-    ) -> pd.DataFrame | None:
-        this_hour_utc = dt.as_utc(
-            datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo)
-        )
+    async def load_electricity_rates(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
+        this_hour_utc = dt.as_utc(datetime(now.year, now.month, now.day, now.hour, tzinfo=now.tzinfo))
 
         tariff = await self._octopus_client.get_tariff()
 
         # We currently work with hourly data across the board. If we need to combine two half-hours with different
         # rates, take the max
-        tariff = tariff.resample("h").sum()
+        tariff = tariff.resample("h").max()
 
         # Forecast might not be long enough. Fill with data 24h ago if that's the case
         extended_df = tariff.reindex(pd.date_range(tariff.iloc[0].name, this_hour_utc + period, freq="h"))  # type: ignore

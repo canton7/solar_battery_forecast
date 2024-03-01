@@ -1,7 +1,9 @@
 from abc import ABC
 from abc import abstractmethod
 from dataclasses import dataclass
+from dataclasses import field
 from datetime import datetime
+from datetime import time
 
 import pandas as pd
 from homeassistant.config_entries import ConfigEntry
@@ -43,6 +45,18 @@ class EntityControllerState:
     """The battery forecast calculated at midnight"""
 
 
+def _midnight() -> time:
+    return time(0, 0, 0)
+
+
+@dataclass
+class RateOverrides:
+    rate_adjust_enable: bool = False
+    rate_adjust_start: time = field(default_factory=_midnight)
+    rate_adjust_end: time = field(default_factory=_midnight)
+    rate_adjust_value: float = 0.0
+
+
 class EntityController(ABC):
     @property
     @abstractmethod
@@ -52,6 +66,15 @@ class EntityController(ABC):
     @property
     @abstractmethod
     def state(self) -> EntityControllerState:
+        pass
+
+    @property
+    @abstractmethod
+    def rate_overrides(self) -> RateOverrides:
+        pass
+
+    @abstractmethod
+    async def reload(self) -> None:
         pass
 
     @abstractmethod

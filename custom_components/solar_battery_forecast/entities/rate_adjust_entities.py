@@ -1,5 +1,7 @@
-import datetime
+from datetime import time
 
+from homeassistant.components.number import NumberEntity
+from homeassistant.components.number import NumberMode
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.components.time import TimeEntity
 from homeassistant.const import Platform
@@ -8,35 +10,73 @@ from .entity_controller import EntityController
 from .entity_mixin import EntityMixin
 
 
-class ImportAdjustStartEntity(EntityMixin, TimeEntity):
+class RateAdjustStartEntity(EntityMixin, TimeEntity):
     def __init__(self, controller: EntityController) -> None:
         self._controller = controller
-        self._key = "import_adjust_start"
-        self._attr_name = "Import Adjust Start"
+        self._key = "rate_adjust_start"
+        self._attr_name = "Rate Adjust Start"
         self.entity_id = self._get_entity_id(Platform.TIME)
 
-        self._attr_native_value = datetime.time(0, 0, 0)
+    @property
+    def native_value(self) -> time | None:
+        return self._controller.rate_overrides.rate_adjust_start
+
+    async def async_set_value(self, value: time) -> None:
+        self._controller.rate_overrides.rate_adjust_start = value
+        self.async_write_ha_state()
 
 
-class ImportAdjustEndEntity(EntityMixin, TimeEntity):
+class RateAdjustEndEntity(EntityMixin, TimeEntity):
     def __init__(self, controller: EntityController) -> None:
         self._controller = controller
-        self._key = "import_adjust_end"
-        self._attr_name = "Import Adjust End"
+        self._key = "rate_adjust_end"
+        self._attr_name = "Rate Adjust End"
         self.entity_id = self._get_entity_id(Platform.TIME)
 
-        self._attr_native_value = datetime.time(0, 0, 0)
+    @property
+    def native_value(self) -> time | None:
+        return self._controller.rate_overrides.rate_adjust_end
+
+    async def async_set_value(self, value: time) -> None:
+        self._controller.rate_overrides.rate_adjust_end = value
+        self.async_write_ha_state()
 
 
-class ImportAdjustEnableEntity(EntityMixin, SwitchEntity):
+class RateAdjustEnableEntity(EntityMixin, SwitchEntity):
     def __init__(self, controller: EntityController) -> None:
         self._controller = controller
-        self._key = "import_adjust_enable"
-        self._attr_name = "Import Adjust Enable"
+        self._key = "rate_adjust_enable"
+        self._attr_name = "Rate Adjust Enable"
         self.entity_id = self._get_entity_id(Platform.SWITCH)
 
+    @property
+    def is_on(self) -> bool | None:
+        return self._controller.rate_overrides.rate_adjust_enable
+
     async def async_turn_on(self) -> None:
-        """Turn the entity on."""
+        self._controller.rate_overrides.rate_adjust_enable = True
+        self.async_write_ha_state()
 
     async def async_turn_off(self) -> None:
-        """Turn the entity off."""
+        self._controller.rate_overrides.rate_adjust_enable = False
+        self.async_write_ha_state()
+
+
+class RateAdjustValueEntity(EntityMixin, NumberEntity):
+    def __init__(self, controller: EntityController) -> None:
+        self._controller = controller
+        self._key = "rate_adjust_value"
+        self._attr_name = "Rate Adjust Value"
+        self.entity_id = self._get_entity_id(Platform.NUMBER)
+
+        self._attr_native_min_value = 0.0
+        self._attr_native_step = 0.01
+        self._attr_mode = NumberMode.BOX
+
+    @property
+    def native_value(self) -> float:
+        return self._controller.rate_overrides.rate_adjust_value
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._controller.rate_overrides.rate_adjust_value = value
+        self.async_write_ha_state()
