@@ -629,16 +629,44 @@ class BatteryModel:
                 segments[slot].generation = prev_generation
                 best_result_ever = self.run(segments, actions)
 
-        for slot in range(len(actions)):
-            if actions[slot].action_type == ActionType.CHARGE:
-                prev_max_soc = actions[slot].max_soc
-                for max_soc_percent in range(100, round(prev_max_soc * 100), -OPTIMIZATION_SOC_STEP_PERCENT):
-                    actions[slot].max_soc = max_soc_percent / 100
-                    new_result = self.run(segments, actions)
-                    if not self.is_better(best_result_ever, new_result, margin=margin):
-                        best_result_ever = new_result
-                        break
-                    actions[slot].max_soc = prev_max_soc
-                changed = changed or actions[slot].max_soc != prev_max_soc
+        # When we optimize charge periods, we need to do all actions in a period at the same time,
+        # otherwise there's no advantage in just reducing the soc of the first.
+        # If the model has decided to have different parts of the charge period have different socs, then treat those
+        # parts separately
+        start_of_charge_periods = [
+            i
+            for i in range(0, len(actions))
+            if actions[i].action_type == ActionType.CHARGE
+            and (
+                i == 0
+                or actions[i - 1].action_type != ActionType.CHARGE
+                or actions[i - 1].max_soc != actions[i].max_soc
+            )
+        ]
+        for slot in start_of_charge_periods:
+            prev_max_soc = actions[slot].max_soc
+            actions_in_period = [actions[slot]]
+            for i in range(slot + 1, len(actions)):
+                if actions[i].action_type != ActionType.CHARGE or actions[slot].max_soc != prev_max_soc:
+                    break
+                actions_in_period.append(actions[i])
+
+            # We might want to tune this up *or* down a bit, as we're now working with smaller step size.
+            # Therefore just search the whole space for the best.
+            best_max_soc = prev_max_soc
+            for max_soc_percent in range(OPTIMIZATION_MIN_SOC_PERCENT, 101, OPTIMIZATION_SOC_STEP_PERCENT):
+                max_soc = max_soc_percent / 100
+                for action in actions_in_period:
+                    action.max_soc = max_soc
+
+                new_result = self.run(segments, actions)
+                if self.is_better(new_result, best_result_ever, margin=margin):
+                    best_result_ever = new_result
+                    best_max_soc = max_soc
+
+            for action in actions_in_period:
+                action.max_soc = best_max_soc
+
+            changed = changed or best_max_soc != prev_max_soc
 
         return (changed, best_result_ever)
