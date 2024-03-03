@@ -632,7 +632,7 @@ class BatteryModel:
         for slot in range(len(actions)):
             if actions[slot].action_type == ActionType.CHARGE:
                 prev_max_soc = actions[slot].max_soc
-                for max_soc_percent in range(100, round(prev_max_soc * 100), -SOC_STEP_PERCENT):
+                for max_soc_percent in range(100, round(prev_max_soc * 100), -OPTIMIZATION_SOC_STEP_PERCENT):
                     actions[slot].max_soc = max_soc_percent / 100
                     new_result = self.run(segments, actions)
                     if not self.is_better(best_result_ever, new_result, margin=margin):
