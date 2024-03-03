@@ -24,7 +24,7 @@ class CurrentActionSensor(EntityMixin, SensorEntity):
             if current_action.action_type == ActionType.CHARGE:
                 charge_text = "Charge"
                 charge_attr = "charge"
-            elif current_action.action_type == ActionType.DISCHAGE:
+            elif current_action.action_type == ActionType.DISCHARGE:
                 charge_text = "Disharge"
                 charge_attr = "discharge"
             elif current_action.action_type == ActionType.SELF_USE:

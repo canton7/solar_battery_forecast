@@ -9,7 +9,7 @@ from typing import Sequence
 class ActionType(Enum):
     SELF_USE = 0
     CHARGE = 1
-    DISCHAGE = 2
+    DISCHARGE = 2
 
 
 @dataclass
@@ -36,6 +36,8 @@ class TimeSegment:
     import_tariff: float
 
 
+DISCHARGE_DISINCENTIVE = 2
+
 SEGMENT_LENGTH_HOURS = 1
 BATTERY_CAPACITY = 4.2
 
@@ -44,12 +46,15 @@ DC_TO_AC_EFFICIENCY = 0.95
 
 INVERTER_POWER_PER_SEGMENT = 3 * SEGMENT_LENGTH_HOURS
 
+# TODO: These are currently unused
 EXPORT_LIMIT_PER_SEGMENT = 9999
 EXPORT_LIMIT_PER_SEGMENT_DC = EXPORT_LIMIT_PER_SEGMENT / DC_TO_AC_EFFICIENCY
 
 # Lowest that we can choose to discharge the battery to
 MIN_SOC_PERMITTED_PERCENT = 20
 SOC_STEP_PERCENT = 20
+# Discharge seems to be much more sensitive to precise step control
+DISCHARGE_SOC_STEP_PERCENT = 10
 
 OPTIMIZATION_MIN_SOC_PERCENT = 10
 OPTIMIZATION_SOC_STEP_PERCENT = 10
@@ -143,6 +148,7 @@ class BatteryModel:
                     # Generation covers consumption: charge the battery and then export the rest
                     excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
                     battery_discharge = -clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, excess_solar_dc)
+                    # TODO: Export limit
                     inverter_output_ac = (
                         segment.consumption + (excess_solar_dc + battery_discharge) * DC_TO_AC_EFFICIENCY
                     )
@@ -169,9 +175,10 @@ class BatteryModel:
                     inverter_output_ac = (segment.generation - solar_to_battery) * DC_TO_AC_EFFICIENCY
                 battery_discharge = -(solar_to_battery + inverter_to_battery_dc)
 
-            elif action.action_type == ActionType.DISCHAGE:
+            elif action.action_type == ActionType.DISCHARGE:
                 # The inverter exports at the set rate, using as much solar as possible, and the rest from battery.
                 # Load is taken from the exported energy, with the rest going to the grid
+                # TODO: Max export rate
                 inverter_max_export_dc = INVERTER_POWER_PER_SEGMENT / DC_TO_AC_EFFICIENCY
                 solar_to_inverter_export = min(segment.generation, inverter_max_export_dc)
                 # The battery dischages to make up the gap if possible. Any excess generation goes into the battery
@@ -199,7 +206,7 @@ class BatteryModel:
                 feed_in_amount = 0.0
                 import_amount = segment.consumption - inverter_output_ac
 
-            this_feed_in_cost = feed_in_amount * segment.feed_in_tariff
+            this_feed_in_cost = max(0, feed_in_amount * (segment.feed_in_tariff - DISCHARGE_DISINCENTIVE))
             feed_in_cost += this_feed_in_cost
             this_import_cost = import_amount * segment.import_tariff
             import_cost += this_import_cost
@@ -240,11 +247,11 @@ class BatteryModel:
 
     def shotgun_hillclimb(self, segments: list[TimeSegment]) -> tuple[list[Action], RunOutput]:
         # visited_actions_hashes = set()
-        action_type_set = (ActionType.SELF_USE, ActionType.CHARGE, ActionType.DISCHAGE)
+        action_type_set = (ActionType.SELF_USE, ActionType.CHARGE, ActionType.DISCHARGE)
         best_result_ever: float | None = None
         best_actions_ever: list[Action] = []
         slots = list(range(len(segments)))
-        for _loops in range(10):
+        for loops in range(10):
             # Keeping a fair number of "Do last action" seems to make it easier for it to find solutions which only work
             # if you consistently do the same thing a lot.
             # actions: list[Action | None] = [INITIAL_ACTION.clone() for _ in range(len(segments))]
@@ -258,7 +265,7 @@ class BatteryModel:
             # faster if there are fewer Nones, as the whole thing is a bit less volatile.
             # A long fill factor is quite often better if we need to keep the soc low all day, but other than that
             # short fill factors tend to be better.
-            fill_factor = (1, 4, 8)[(_loops % 3)]
+            fill_factor = (1, 4, 8)[(loops % 3)]
             # TODO: Thi 24 is faster... Is it better in all cases?
             for i in range(len(actions)):
                 if i % fill_factor == 0:
@@ -316,9 +323,9 @@ class BatteryModel:
                                 if segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
                                 else (MIN_SOC_PERMITTED_PERCENT, 100)
                             )
-                        elif new_action_type == ActionType.DISCHAGE:
+                        elif new_action_type == ActionType.DISCHARGE:
                             # Don't allow a discharge down to 100%: the model tries to use it as a way to keep charge
-                            new_min_soc_percents = range(MIN_SOC_PERMITTED_PERCENT, 99, SOC_STEP_PERCENT)
+                            new_min_soc_percents = range(MIN_SOC_PERMITTED_PERCENT, 99, DISCHARGE_SOC_STEP_PERCENT)
 
                         for new_min_soc_percent in new_min_soc_percents:
                             action.min_soc = new_min_soc_percent / 100
@@ -336,7 +343,7 @@ class BatteryModel:
                                     if segments[slot].generation > segments[slot].consumption / DC_TO_AC_EFFICIENCY
                                     else (100,)
                                 )
-                            elif new_action_type == ActionType.DISCHAGE:
+                            elif new_action_type == ActionType.DISCHARGE:
                                 new_max_soc_percents = (100,)
 
                             for new_max_soc_percent in new_max_soc_percents:
@@ -408,8 +415,18 @@ class BatteryModel:
 
             copied_another_action = False
 
-            # If we can make it the same as the previous action, do that
-            if not copied_another_action and slot > 0 and old_action != best_actions_ever[slot - 1]:
+            # If we can make it the same as the previous action, do that.
+            # Don't do this for discharge: it tends to make the model extend the discharge beyond the end of a period
+            # with good export rates, which negatively affects things later. For discharge, it's better if we can extend
+            # it earlier.
+            # TODO: We might want to try copying discharge actions forward in time? That would require passes in two
+            # directions here.
+            if (
+                not copied_another_action
+                and slot > 0
+                and old_action != best_actions_ever[slot - 1]
+                and best_actions_ever[slot - 1].action_type != ActionType.DISCHARGE
+            ):
                 best_actions_ever[slot] = best_actions_ever[slot - 1].clone()
                 new_result = self.run(segments, best_actions_ever)
                 if not self.is_better(best_result_ever, new_result, margin=MARGIN):
@@ -462,12 +479,12 @@ class BatteryModel:
         start_of_discharge_periods = [
             i
             for i in range(0, len(best_actions_ever))
-            if best_actions_ever[i].action_type == ActionType.DISCHAGE
-            and (i == 0 or best_actions_ever[i - 1].action_type != ActionType.DISCHAGE)
+            if best_actions_ever[i].action_type == ActionType.DISCHARGE
+            and (i == 0 or best_actions_ever[i - 1].action_type != ActionType.DISCHARGE)
         ]
         for start_of_discharge_period in start_of_discharge_periods:
             for candidate in range(start_of_discharge_period, len(best_actions_ever)):
-                if best_actions_ever[candidate].action_type != ActionType.DISCHAGE:
+                if best_actions_ever[candidate].action_type != ActionType.DISCHARGE:
                     break
                 prev_action = best_actions_ever[candidate]
                 best_actions_ever[candidate] = best_actions_ever[candidate].clone()
@@ -536,15 +553,25 @@ class BatteryModel:
             else:
                 prev_consumption = segments[slot].consumption
                 prev_generation = segments[slot].generation
-                # This needs to be large enough to drain the battery
-                if shock:
+
+                # This needs to be large enough to drain the battery.
+                # Don't do this for discharge: we're draining down to a min soc anyway, so this won't affect how much
+                # the battery is drained. In practice, it just results in the model opting to drain the battery too far.
+                if shock and actions[slot].action_type == ActionType.SELF_USE:
                     segments[slot].consumption = BATTERY_CAPACITY
                     segments[slot].generation = 0
 
                 test_result = self.run(segments, actions)
 
                 best_min_soc = actions[slot].min_soc
-                for min_soc_percent in range(OPTIMIZATION_MIN_SOC_PERCENT, 101, OPTIMIZATION_SOC_STEP_PERCENT):
+                # The model's pretty good at finding the min soc when discharging. Don't try and find one that's lower,
+                # as this can result in over-zealous discharging.
+                min_soc_percents = (
+                    range(int(actions[slot].min_soc * 100), 101, OPTIMIZATION_SOC_STEP_PERCENT)
+                    if actions[slot].action_type == ActionType.DISCHARGE
+                    else range(OPTIMIZATION_MIN_SOC_PERCENT, 101, OPTIMIZATION_SOC_STEP_PERCENT)
+                )
+                for min_soc_percent in min_soc_percents:
                     min_soc = min_soc_percent / 100
                     actions[slot].min_soc = min_soc
                     new_result = self.run(segments, actions)
@@ -568,7 +595,7 @@ class BatteryModel:
             # generation < consumption, the model won't see any reason to impose a max soc to stop the battery from
             # charging. Applying a shock generation ensures that this limit is put in place.
             # Else, if this is a charge period, just make it as high as it can be.
-            if actions[slot].action_type == ActionType.DISCHAGE:
+            if actions[slot].action_type == ActionType.DISCHARGE:
                 # For discharge periods, just set the max soc to the max
                 actions[slot].max_soc = 1.0
             elif actions[slot].action_type == ActionType.SELF_USE:
