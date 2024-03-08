@@ -66,7 +66,10 @@ class OctopusApiClient:
                     tariff.append(pd.Series(np.repeat(x.value, len(idx)), index=idx))
 
         df = pd.DataFrame(
-            data={"import_tariff": pd.concat(import_tariffs), "feed_in_tariff": pd.concat(export_tariffs)}
+            data={
+                "import_tariff": pd.concat(import_tariffs) if len(import_tariffs) > 0 else np.nan,
+                "feed_in_tariff": pd.concat(export_tariffs) if len(export_tariffs) > 0 else np.nan,
+            }
         )
 
         # During a saving session, we save money based on the net amount that we export compared to normal. Fudge the
