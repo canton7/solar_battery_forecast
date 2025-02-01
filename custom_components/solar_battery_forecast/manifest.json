@@ -14,8 +14,8 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/canton7/solar_battery_forecast/issues",
   "requirements": [
-    "ariadne-codegen==0.7.1",
-    "statsmodels==0.14.0"
+    "ariadne-codegen==0.14.0",
+    "statsmodels==0.14.4"
   ],
   "version": "0.0.1"
 }

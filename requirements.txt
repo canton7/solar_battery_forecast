@@ -1,19 +1,16 @@
-pip>=21.0,<23.2
-homeassistant==2024.1.1
-pytest-homeassistant-custom-component # Version matching homeassistant
+homeassistant==2025.1.0
+pytest-homeassistant-custom-component==0.13.201 # Version matching homeassistant
 colorlog==6.7.0
 pre-commit==3.3.3
-black==23.3.0
-ruff==0.0.275
+ruff==0.9.4
 
-ariadne-codegen==0.7.1 # Stuck on this version, as HA requires pydantic 1.10.12
-statsmodels==0.14.0
-matplotlib==3.7.2
+statsmodels==0.14.4
+matplotlib==3.10.0
 pandas-stubs # Version should automatically match pandas version
 scikit-learn
+ariadne-codegen==0.14.0
 
 # These are duplicated in .pre-commit-config.yaml
-reorder-python-imports==3.10.0
 mypy==1.4.1
 homeassistant-stubs # Version matching homeassistant
 voluptuous-stubs==0.1.1

@@ -36,7 +36,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         integration = await loader.async_get_integration(hass, DOMAIN)
         version = str(integration.version)
-        _LOGGER.info(f"{DOMAIN} version: {version}")
+        _LOGGER.info(f"{DOMAIN} version: {version}")  # noqa: G004
     except loader.IntegrationNotFound:
         pass
 

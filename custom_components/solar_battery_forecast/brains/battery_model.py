@@ -101,13 +101,13 @@ class BatteryModel:
             f"Feed-in: {output.segments[-1].cumulative_feed_in_cost}; import: "
             f"{output.segments[-1].cumulative_import_cost}; total: {output.segments[-1].cumulative_score}"
         )
-        plt.plot(range(0, size), [x.battery_level for x in output.segments], marker="o", label="batt")
-        plt.plot(range(0, size), [x.consumption for x in segments], marker="x", label="cons")
-        plt.plot(range(0, size), [x.generation for x in segments], marker="+", label="gen")
-        plt.plot(range(0, size), [x.import_kwh for x in output.segments], marker="<", label="gen")
-        plt.plot(range(0, size), [x.feed_in_kwh for x in output.segments], marker=">", label="gen")
+        plt.plot(range(size), [x.battery_level for x in output.segments], marker="o", label="batt")
+        plt.plot(range(size), [x.consumption for x in segments], marker="x", label="cons")
+        plt.plot(range(size), [x.generation for x in segments], marker="+", label="gen")
+        plt.plot(range(size), [x.import_kwh for x in output.segments], marker="<", label="gen")
+        plt.plot(range(size), [x.feed_in_kwh for x in output.segments], marker=">", label="gen")
         plt.fill_between(
-            range(0, size),
+            range(size),
             [0 if x is None else x.min_soc * BATTERY_CAPACITY - 0.05 for x in actions],
             [0 if x is None else x.max_soc * BATTERY_CAPACITY + 0.05 for x in actions],
             step="mid",
@@ -478,7 +478,7 @@ class BatteryModel:
         # We've already extended the period as late as we can, so just try and chop off the start.
         start_of_discharge_periods = [
             i
-            for i in range(0, len(best_actions_ever))
+            for i in range(len(best_actions_ever))
             if best_actions_ever[i].action_type == ActionType.DISCHARGE
             and (i == 0 or best_actions_ever[i - 1].action_type != ActionType.DISCHARGE)
         ]
@@ -635,7 +635,7 @@ class BatteryModel:
         # parts separately
         start_of_charge_periods = [
             i
-            for i in range(0, len(actions))
+            for i in range(len(actions))
             if actions[i].action_type == ActionType.CHARGE
             and (
                 i == 0

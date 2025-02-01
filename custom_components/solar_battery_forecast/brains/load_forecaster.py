@@ -19,7 +19,7 @@ class LoadForecaster:
 
     def predict(self, df: pd.DataFrame) -> pd.DataFrame | None:
         if len(df) < 24:
-            _LOGGER.warning(f"Unable to provide a forecast for {len(df)} hours of data. Please wait")
+            _LOGGER.warning("Unable to provide a forecast for %s hours of data. Please wait", len(df))
             return None
 
         # Even a few missing values are enough to make it return solid NaNs for the forecast
