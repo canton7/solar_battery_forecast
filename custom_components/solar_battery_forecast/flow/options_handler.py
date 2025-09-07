@@ -1,4 +1,5 @@
 from typing import Any
+from typing import cast
 
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
@@ -17,9 +18,14 @@ class OptionsHandler(FlowHandlerMixin, config_entries.OptionsFlow):
     async def async_step_init(self, _user_input: dict[str, Any] | None = None) -> FlowResult:
         """Start the config flow"""
 
-        return await self.async_step_api_details(self._config.data)
+        return await self.async_step_api_details(config=cast(UserConfig, self._config.data))
 
     def save(self, config: UserConfig) -> FlowResult:
-        self.hass.config_entries.async_update_entry(title=CONFIG_ENTRY_TITLE, data=config, options=self._config.options)
+        self.hass.config_entries.async_update_entry(
+            self._config,
+            title=CONFIG_ENTRY_TITLE,
+            data=config,
+            options=self._config.options,
+        )
 
         return self.async_create_entry(title="", data={})

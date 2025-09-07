@@ -1,5 +1,5 @@
-homeassistant==2025.7.1
-pytest-homeassistant-custom-component==0.13.261 # Version matching homeassistant
+homeassistant==2025.8.0
+pytest-homeassistant-custom-component==0.13.269 # Version matching homeassistant
 colorlog==6.7.0
 pre-commit==3.3.3
 ruff==0.9.4
