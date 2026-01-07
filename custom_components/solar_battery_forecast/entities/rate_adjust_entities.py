@@ -1,4 +1,5 @@
 from datetime import time
+from typing import Any
 
 from homeassistant.components.number import NumberEntity
 from homeassistant.components.number import NumberMode
@@ -53,11 +54,11 @@ class RateAdjustEnableEntity(EntityMixin, SwitchEntity):
     def is_on(self) -> bool | None:
         return self._controller.rate_overrides.rate_adjust_enable
 
-    async def async_turn_on(self) -> None:
+    async def async_turn_on(self, **_kwargs: Any) -> None:
         self._controller.rate_overrides.rate_adjust_enable = True
         self.async_write_ha_state()
 
-    async def async_turn_off(self) -> None:
+    async def async_turn_off(self, **_kwargs: Any) -> None:
         self._controller.rate_overrides.rate_adjust_enable = False
         self.async_write_ha_state()
 

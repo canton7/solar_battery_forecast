@@ -20,5 +20,5 @@ class DataSource(ABC):
         pass
 
     @abstractmethod
-    def load_electricity_rates(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
+    async def load_electricity_rates(self, now: datetime, period: timedelta) -> pd.DataFrame | None:
         pass

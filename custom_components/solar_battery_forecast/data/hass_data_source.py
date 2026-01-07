@@ -23,7 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 class HassDataSource(DataSource):
     def __init__(self, hass: HomeAssistant, config: MainConfig, user_config: UserConfig) -> None:
         self._hass = hass
-        self._octopus_client = OctopusApiClient(user_config["octopus_account_id"], user_config["octopus_api_key"])
+        self._octopus_client = OctopusApiClient(hass, user_config["octopus_account_id"], user_config["octopus_api_key"])
 
         self._load_power_sum_sensor = config["load_power_sum_sensor"]
         self._soc_sensor = config["soc_sensor"]

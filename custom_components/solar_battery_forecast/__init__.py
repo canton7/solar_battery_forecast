@@ -4,10 +4,10 @@ import logging
 from homeassistant import loader
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import Config
 from homeassistant.core import CoreState
 from homeassistant.core import Event
 from homeassistant.core import HomeAssistant
+from homeassistant.core_config import Config
 from homeassistant.util import dt
 
 from .const import DOMAIN
@@ -50,7 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     else:
         hass.async_create_task(controller.load(dt.now()))
 
-    hass.async_add_job(hass.config_entries.async_forward_entry_setups(entry, PLATFORMS))
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True

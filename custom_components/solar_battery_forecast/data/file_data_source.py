@@ -33,7 +33,7 @@ class FileDataSource(DataSource):
     def load_solar_forecast(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:
         return self._deserialize(self._file["solar_forecast"], now.tzinfo, "h")
 
-    def load_electricity_rates(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:
+    async def load_electricity_rates(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:
         return self._deserialize(self._file["electricity_rates"], now.tzinfo, "h")
 
     def load_load_forecast(self, now: datetime, _period: timedelta) -> pd.DataFrame | None:

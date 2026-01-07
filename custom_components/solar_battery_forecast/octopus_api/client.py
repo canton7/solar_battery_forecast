@@ -5,6 +5,7 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
+from homeassistant.core import HomeAssistant
 
 from .graphql_client.account_query import AccountQueryAccountElectricityAgreementsTariffHalfHourlyTariff
 from .graphql_client.client import Client
@@ -19,30 +20,34 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class OctopusApiClient:
-    def __init__(self, account_number: str, api_key: str) -> None:
+    def __init__(self, hass: HomeAssistant, account_number: str, api_key: str) -> None:
+        self._hass = hass
         self._account_number = account_number
         self._api_key = api_key
         self._authed_client_lock = asyncio.Lock()
         self._authed_client: Client | None = None
         self._authed_client_created = 0.0
 
+    async def _create_client(self, headers: dict[str, str]) -> Client:
+        def _create() -> Client:
+            return Client(URL_BASE, headers | { "User-Agent": USER_AGENT})
+        return await self._hass.async_add_executor_job(_create)
+
     async def _auth_client(self) -> Client:
         now = time.monotonic()
         async with self._authed_client_lock:
             if self._authed_client is None or now - self._authed_client_created > TOKEN_EXPIRY_SECS:
                 _LOGGER.info("Client is %ss old. Refreshing", now - self._authed_client_created)
-                client = Client(URL_BASE, headers={"User-Agent": USER_AGENT})
+                client = await self._create_client({})
                 try:
                     response = await client.authenticate(self._api_key)
-                    self._authed_client = Client(
-                        URL_BASE, headers={"User-Agent": USER_AGENT, "Authorization": response.token}
-                    )
+                    self._authed_client = await self._create_client({"Authorization": response.token})
                     self._authed_client_created = now
                 except GraphQLClientGraphQLMultiError as ex:
                     raise AuthenticationFailedError() from ex
             return self._authed_client
 
-    async def get_tariff(self) -> None:
+    async def get_tariff(self) -> pd.DataFrame:
         client = await self._auth_client()
         response = await client.account_query(self._account_number)
         import_tariffs = []
