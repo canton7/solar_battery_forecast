@@ -1,3 +1,4 @@
+import math
 import random
 from dataclasses import dataclass
 from dataclasses import field
@@ -121,9 +122,9 @@ class BatteryModel:
         actions: Sequence[Action | None],
         outputs: RunOutput | None = None,
     ) -> float:
-        def clamp(val: float, lower: float, upper: float) -> float:
-            if val < lower:
-                return lower
+        def clamp(val: float, upper: float) -> float:
+            if val < 0 or upper < 0:
+                return 0
             if val > upper:
                 return upper
             return val
@@ -147,7 +148,7 @@ class BatteryModel:
                 if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY:
                     # Generation covers consumption: charge the battery and then export the rest
                     excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
-                    battery_discharge = -clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, excess_solar_dc)
+                    battery_discharge = -clamp(excess_solar_dc, BATTERY_CAPACITY * action.max_soc - battery_level)
                     # TODO: Export limit
                     inverter_output_ac = (
                         segment.consumption + (excess_solar_dc + battery_discharge) * DC_TO_AC_EFFICIENCY
@@ -155,17 +156,17 @@ class BatteryModel:
                 else:
                     # Generation doesn't cover consumption: output all generation + some battery
                     required_energy_dc = segment.consumption / DC_TO_AC_EFFICIENCY - segment.generation
-                    battery_discharge = clamp(battery_level - BATTERY_CAPACITY * action.min_soc, 0, required_energy_dc)
+                    battery_discharge = clamp(required_energy_dc, battery_level - BATTERY_CAPACITY * action.min_soc)
                     inverter_output_ac = (segment.generation + battery_discharge) * DC_TO_AC_EFFICIENCY
 
             elif action.action_type == ActionType.CHARGE:
                 # Solar goes to the battery if available
-                solar_to_battery = clamp(BATTERY_CAPACITY * action.max_soc - battery_level, 0, segment.generation)
+                solar_to_battery = clamp(segment.generation, BATTERY_CAPACITY * action.max_soc - battery_level)
+
                 if solar_to_battery == segment.generation:
                     # Any remaining charge comes through the inverter
                     inverter_to_battery_dc = clamp(
                         BATTERY_CAPACITY * action.max_soc - battery_level - solar_to_battery,
-                        0,
                         INVERTER_POWER_PER_SEGMENT / AC_TO_DC_EFFICIENCY,
                     )
                     inverter_output_ac = -inverter_to_battery_dc * AC_TO_DC_EFFICIENCY
@@ -184,15 +185,13 @@ class BatteryModel:
                 # The battery dischages to make up the gap if possible. Any excess generation goes into the battery
                 if inverter_max_export_dc > solar_to_inverter_export:
                     battery_discharge = clamp(
-                        battery_level - BATTERY_CAPACITY * action.min_soc,
-                        0,
                         inverter_max_export_dc - solar_to_inverter_export,
+                        battery_level - BATTERY_CAPACITY * action.min_soc,
                     )
                 else:
                     battery_discharge = -clamp(
-                        BATTERY_CAPACITY * action.max_soc - battery_level,
-                        0,
                         solar_to_inverter_export - inverter_max_export_dc,
+                        BATTERY_CAPACITY * action.max_soc - battery_level,
                     )
                 inverter_output_ac = (solar_to_inverter_export + max(0, battery_discharge)) * DC_TO_AC_EFFICIENCY
 
@@ -231,6 +230,183 @@ class BatteryModel:
         # Round to avoid floating-point error saying that one result is better than another, when in fact they're the
         # same
         return score
+
+    def run_one(
+        self,
+        intial_soc: float,
+        segment: TimeSegment,
+        action: Action,
+    ) -> tuple[float, float]:  # Score, soc
+        def clamp(val: float, upper: float) -> float:
+            if val < 0 or upper < 0:
+                return 0
+            if val > upper:
+                return upper
+            return val
+
+        # self.num_runs += 1
+        battery_level = intial_soc * BATTERY_CAPACITY
+        feed_in_cost = 0.0
+        import_cost = 0.0
+
+        battery_discharge = 0.0
+        inverter_output_ac = 0.0
+
+        if action.action_type == ActionType.SELF_USE:
+            # If generation can cover consumption, excess goes into battery. Else excess comes from battery if
+            # available
+            if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY:
+                # Generation covers consumption: charge the battery and then export the rest
+                excess_solar_dc = segment.generation - segment.consumption / DC_TO_AC_EFFICIENCY
+                battery_discharge = -clamp(excess_solar_dc, BATTERY_CAPACITY * action.max_soc - battery_level)
+                # TODO: Export limit
+                inverter_output_ac = segment.consumption + (excess_solar_dc + battery_discharge) * DC_TO_AC_EFFICIENCY
+            else:
+                # Generation doesn't cover consumption: output all generation + some battery
+                required_energy_dc = segment.consumption / DC_TO_AC_EFFICIENCY - segment.generation
+                battery_discharge = clamp(required_energy_dc, battery_level - BATTERY_CAPACITY * action.min_soc)
+                inverter_output_ac = (segment.generation + battery_discharge) * DC_TO_AC_EFFICIENCY
+
+        elif action.action_type == ActionType.CHARGE:
+            # Solar goes to the battery if available
+            solar_to_battery = clamp(segment.generation, BATTERY_CAPACITY * action.max_soc - battery_level)
+            if solar_to_battery == segment.generation:
+                # Any remaining charge comes through the inverter
+                inverter_to_battery_dc = clamp(
+                    INVERTER_POWER_PER_SEGMENT / AC_TO_DC_EFFICIENCY,
+                    BATTERY_CAPACITY * action.max_soc - battery_level - solar_to_battery,
+                )
+                inverter_output_ac = -inverter_to_battery_dc * AC_TO_DC_EFFICIENCY
+            else:
+                # Any excess solar is output from the inverter
+                inverter_to_battery_dc = 0
+                inverter_output_ac = (segment.generation - solar_to_battery) * DC_TO_AC_EFFICIENCY
+            battery_discharge = -(solar_to_battery + inverter_to_battery_dc)
+
+        elif action.action_type == ActionType.DISCHARGE:
+            # The inverter exports at the set rate, using as much solar as possible, and the rest from battery.
+            # Load is taken from the exported energy, with the rest going to the grid
+            # TODO: Max export rate
+            inverter_max_export_dc = INVERTER_POWER_PER_SEGMENT / DC_TO_AC_EFFICIENCY
+            solar_to_inverter_export = min(segment.generation, inverter_max_export_dc)
+            # The battery dischages to make up the gap if possible. Any excess generation goes into the battery
+            if inverter_max_export_dc > solar_to_inverter_export:
+                battery_discharge = clamp(
+                    inverter_max_export_dc - solar_to_inverter_export, battery_level - BATTERY_CAPACITY * action.min_soc
+                )
+            else:
+                battery_discharge = -clamp(
+                    solar_to_inverter_export - inverter_max_export_dc, BATTERY_CAPACITY * action.max_soc - battery_level
+                )
+            inverter_output_ac = (solar_to_inverter_export + max(0, battery_discharge)) * DC_TO_AC_EFFICIENCY
+
+        battery_level -= battery_discharge
+        assert battery_level >= 0
+
+        if inverter_output_ac > segment.consumption:
+            feed_in_amount = inverter_output_ac - segment.consumption
+            import_amount = 0.0
+        else:
+            feed_in_amount = 0.0
+            import_amount = segment.consumption - inverter_output_ac
+
+        this_feed_in_cost = max(0, feed_in_amount * (segment.feed_in_tariff - DISCHARGE_DISINCENTIVE))
+        feed_in_cost += this_feed_in_cost
+        this_import_cost = import_amount * segment.import_tariff
+        import_cost += this_import_cost
+
+        # if outputs is not None:
+        #     outputs.segments.append(
+        #         RunOutputSegment(
+        #             battery_level=round(battery_level, 2),
+        #             battery_soc=round((battery_level / BATTERY_CAPACITY) * 100),
+        #             feed_in_kwh=round(feed_in_amount, 2),
+        #             import_kwh=round(import_amount, 2),
+        #             feed_in_cost=round(this_feed_in_cost, 2),
+        #             cumulative_feed_in_cost=round(feed_in_cost, 2),
+        #             import_cost=round(this_import_cost, 2),
+        #             cumulative_import_cost=round(import_cost, 2),
+        #             cumulative_score=round(feed_in_cost, 2) - round(import_cost, 2),
+        #         )
+        #     )
+
+        score = round(feed_in_cost, 2) - round(import_cost, 2)
+
+        # Round to avoid floating-point error saying that one result is better than another, when in fact they're the
+        # same
+        return score, battery_level / BATTERY_CAPACITY
+
+    def incremental(self, segments: list[TimeSegment]) -> None:
+        inputs: dict[float, tuple[float, list[Action]]] = {self._initial_battery / BATTERY_CAPACITY: (0, [])}
+        outputs: dict[float, tuple[float, list[Action]]] = {}
+
+        for segment in segments:
+            for intial_soc, (input_score, actions) in sorted(inputs.items(), key=lambda x: x[0], reverse=True):
+                action = Action(ActionType.SELF_USE, 0, 0)
+                for action_type in ActionType:
+                    action.action_type = action_type
+
+                    # min soc is used:
+                    # - when charging, it isn't used
+                    # - when in self use, to prevent discharge
+                    # - when force discharging, to say what limit to force discharge to
+                    new_min_soc_percents: Iterable[int]
+                    if action_type == ActionType.CHARGE:
+                        new_min_soc_percents = (MIN_SOC_PERMITTED_PERCENT,)
+                    elif action_type == ActionType.SELF_USE:
+                        new_min_soc_percents = (
+                            (MIN_SOC_PERMITTED_PERCENT,)
+                            if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY
+                            else (100, MIN_SOC_PERMITTED_PERCENT)
+                        )
+                    elif action_type == ActionType.DISCHARGE:
+                        # Don't allow a discharge down to 100%: the model tries to use it as a way to keep charge
+                        new_min_soc_percents = range(MIN_SOC_PERMITTED_PERCENT, 99, DISCHARGE_SOC_STEP_PERCENT)
+
+                    for new_min_soc_percent in new_min_soc_percents:
+                        action.min_soc = new_min_soc_percent / 100
+                        # max soc is used:
+                        #  - when charging, to limit how much we pull from the grid
+                        #  - when we're consuming solar, to leave space in the battery for e.g. a cheap charge
+                        #    period in the future
+                        # - when discharging, unused
+                        new_max_soc_percents: Iterable[int]
+                        if action_type == ActionType.CHARGE:
+                            new_max_soc_percents = range(100, new_min_soc_percent - 1, -10)
+                        elif action_type == ActionType.SELF_USE:
+                            new_max_soc_percents = (
+                                (100, new_min_soc_percent)
+                                if segment.generation > segment.consumption / DC_TO_AC_EFFICIENCY
+                                else (100,)
+                            )
+                        elif action_type == ActionType.DISCHARGE:
+                            new_max_soc_percents = (100,)
+
+                        for new_max_soc_percent in new_max_soc_percents:
+                            action.max_soc = new_max_soc_percent / 100
+
+                            score, soc = self.run_one(intial_soc, segment, action)
+                            new_score = input_score + score
+                            soc = round(soc, 3)  # Clamp to nearest 10%
+
+                            existing_score = outputs.get(soc)
+                            if existing_score is None or self.is_better(new_score, existing_score[0], 10):
+                                outputs[soc] = (new_score, [*actions, action.clone()])
+                                if action.action_type == ActionType.DISCHARGE:
+                                    print("Here")
+                                # action = Action(ActionType.SELF_USE, 0, 0)
+
+            inputs, outputs = outputs, inputs
+            outputs.clear()
+
+        best_actions = None
+        best_score = -math.inf
+        for score, actions in inputs.values():
+            if score > best_score:
+                best_actions = actions
+                best_score = score
+        self.plot(segments, best_actions)
+        return inputs
 
     def create_hash(self, actions: list[Action | None]) -> int:
         prev_action_hash = INITIAL_ACTION.make_hash()
@@ -400,7 +576,7 @@ class BatteryModel:
 
         assert best_actions_ever is not None
         assert best_result_ever is not None
-        print(repr(best_actions_ever))
+        # print(repr(best_actions_ever))
 
         if self._debug:
             self.plot(segments, best_actions_ever)
@@ -509,14 +685,14 @@ class BatteryModel:
             if not changed:
                 break
 
-        for i, action in enumerate(best_actions_ever):
-            print(f"{i}: {action}")
+        # for i, action in enumerate(best_actions_ever):
+        #     print(f"{i}: {action}")
         best_result_ever = self.run(segments, best_actions_ever)
 
         if self._debug:
             self.plot(segments, best_actions_ever)
-            for i, action in enumerate(best_actions_ever[:24]):
-                print(f"{i}: {action}")
+            # for i, action in enumerate(best_actions_ever[:24]):
+            #     print(f"{i}: {action}")
 
             self.plot(segments[:24], best_actions_ever[:24])
 
