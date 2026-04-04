@@ -1,5 +1,5 @@
 mutation Authenticate($apiKey: String!) {
-  obtainKrakenToken(input: {APIKey: $apiKey}) {
+  obtainKrakenToken(input: { APIKey: $apiKey }) {
     token
   }
 }
@@ -32,19 +32,19 @@ query AccountQuery($accountNumber: String!) {
   }
 }
 
-query SavingSessionsQuery($accountNumber: String!) {
-  savingSessions {
-    events(getDevEvents: false) {
-      id
-      startAt
-      endAt
-      rewardPerKwhInOctoPoints
-    }
-    account(accountNumber: $accountNumber) {
-      hasJoinedCampaign
-      joinedEvents {
-        eventId
-      }
-    }
-  }
-}
+#query SavingSessionsQuery($accountNumber: String!) {
+#  savingSessions {
+#    events(getDevEvents: false) {
+#      id
+#      startAt
+#      endAt
+#      rewardPerKwhInOctoPoints
+#    }
+#    account(accountNumber: $accountNumber) {
+#      hasJoinedCampaign
+#      joinedEvents {
+#        eventId
+#      }
+#    }
+#  }
+#}

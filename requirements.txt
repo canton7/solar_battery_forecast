@@ -8,7 +8,7 @@ statsmodels==0.14.6
 matplotlib==3.10.0
 pandas-stubs # Version should automatically match pandas version
 scikit-learn
-ariadne-codegen==0.14.0
+ariadne-codegen==0.18.0
 
 # These are duplicated in .pre-commit-config.yaml
 mypy==1.4.1
