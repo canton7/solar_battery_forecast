@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.13-bookworm
+FROM mcr.microsoft.com/vscode/devcontainers/python:3.14-bookworm
 
 COPY requirements.txt .
 RUN python3 -m pip install --requirement requirements.txt && \
