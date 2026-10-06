@@ -337,11 +337,19 @@ class BatteryModel:
         return score, battery_level / BATTERY_CAPACITY
 
     def incremental(self, segments: list[TimeSegment]) -> None:
-        inputs: dict[float, tuple[float, list[Action]]] = {self._initial_battery / BATTERY_CAPACITY: (0, [])}
-        outputs: dict[float, tuple[float, list[Action]]] = {}
+        inputs: dict[float, tuple[float, float, list[Action]]] = {
+            self._initial_battery / BATTERY_CAPACITY: (0, self._initial_battery / BATTERY_CAPACITY, [])
+        }
+        outputs: dict[float, tuple[float, float, list[Action]]] = {}
 
+        i = 0
         for segment in segments:
-            for intial_soc, (input_score, actions) in sorted(inputs.items(), key=lambda x: x[0], reverse=True):
+            # if i == 13:
+            #     for _, _, actions in inputs.values():
+            #         self.plot(segments[:i], actions)
+            # i += 1
+
+            for x, (input_score, intial_soc, actions) in sorted(inputs.items(), key=lambda x: x[0], reverse=True):
                 action = Action(ActionType.SELF_USE, 0, 0)
                 for action_type in ActionType:
                     action.action_type = action_type
@@ -369,10 +377,11 @@ class BatteryModel:
                         #  - when charging, to limit how much we pull from the grid
                         #  - when we're consuming solar, to leave space in the battery for e.g. a cheap charge
                         #    period in the future
-                        # - when discharging, unused
+                        #  - when discharging, unused
                         new_max_soc_percents: Iterable[int]
                         if action_type == ActionType.CHARGE:
                             new_max_soc_percents = range(100, new_min_soc_percent - 1, -10)
+                            # new_max_soc_percents = range(new_min_soc_percent, 100 + 1, 10)
                         elif action_type == ActionType.SELF_USE:
                             new_max_soc_percents = (
                                 (100, new_min_soc_percent)
@@ -387,13 +396,13 @@ class BatteryModel:
 
                             score, soc = self.run_one(intial_soc, segment, action)
                             new_score = input_score + score
-                            soc = round(soc, 3)  # Clamp to nearest 10%
+                            clamped_soc = round(soc, 1)  # Clamp to nearest 10%
 
-                            existing_score = outputs.get(soc)
-                            if existing_score is None or self.is_better(new_score, existing_score[0], 10):
-                                outputs[soc] = (new_score, [*actions, action.clone()])
-                                if action.action_type == ActionType.DISCHARGE:
-                                    print("Here")
+                            existing_score = outputs.get(clamped_soc)
+                            if existing_score is None or self.is_better(new_score, existing_score[0], 1):
+                                outputs[clamped_soc] = (new_score, soc, [*actions, action.clone()])
+                                # if action.action_type == ActionType.DISCHARGE:
+                                # print("Here")
                                 # action = Action(ActionType.SELF_USE, 0, 0)
 
             inputs, outputs = outputs, inputs
@@ -401,11 +410,22 @@ class BatteryModel:
 
         best_actions = None
         best_score = -math.inf
-        for score, actions in inputs.values():
+        print(f"Number of results: {len(inputs)}")
+        for score, _, actions in inputs.values():
+            # self.plot(segments, actions)
             if score > best_score:
                 best_actions = actions
                 best_score = score
+        assert best_actions is not None
+
         self.plot(segments, best_actions)
+
+        self.optimize_actions(segments, best_actions, best_score)
+
+        self.plot(segments, best_actions)
+
+        for i, action in enumerate(best_actions):
+            print(f"{i}: {action}")
         return inputs
 
     def create_hash(self, actions: list[Action | None]) -> int:
@@ -584,8 +604,29 @@ class BatteryModel:
 
         # Try and simplify: if changing a slot to a "lower" action doesn't hurt the score, do it
 
-        # TODO: Use 24 rather than len(actions) below? Do we really care about optimizing beyond 24h?
+        self.optimize_actions(segments, best_actions_ever, best_result_ever)
 
+        # for i, action in enumerate(best_actions_ever):
+        #     print(f"{i}: {action}")
+        best_result_ever = self.run(segments, best_actions_ever)
+
+        if self._debug:
+            self.plot(segments, best_actions_ever)
+            # for i, action in enumerate(best_actions_ever[:24]):
+            #     print(f"{i}: {action}")
+
+            self.plot(segments[:24], best_actions_ever[:24])
+
+            print(f"Number of runs: {self.num_runs}")
+
+        outputs = RunOutput()
+        self.run(segments, best_actions_ever, outputs)
+        return best_actions_ever[:24], outputs
+
+    def optimize_actions(
+        self, segments: list[TimeSegment], best_actions_ever: list[Action], best_result_ever: float
+    ) -> float:
+        # TODO: Use 24 rather than len(actions) below? Do we really care about optimizing beyond 24h?
         for slot in range(len(best_actions_ever)):
             old_action = best_actions_ever[slot]
 
@@ -685,22 +726,7 @@ class BatteryModel:
             if not changed:
                 break
 
-        # for i, action in enumerate(best_actions_ever):
-        #     print(f"{i}: {action}")
-        best_result_ever = self.run(segments, best_actions_ever)
-
-        if self._debug:
-            self.plot(segments, best_actions_ever)
-            # for i, action in enumerate(best_actions_ever[:24]):
-            #     print(f"{i}: {action}")
-
-            self.plot(segments[:24], best_actions_ever[:24])
-
-            print(f"Number of runs: {self.num_runs}")
-
-        outputs = RunOutput()
-        self.run(segments, best_actions_ever, outputs)
-        return best_actions_ever[:24], outputs
+        return best_result_ever
 
     def optimize_min_max_soc(
         self,
