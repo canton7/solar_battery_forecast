@@ -36,7 +36,7 @@ class BatteryForecastSensorBase(EntityMixin, SensorEntity, ABC):
         now = dt.now()
         midnight_today = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=now.tzinfo) + timedelta(days=1)
 
-        return battery_forecast.loc[midnight_today, "battery_soc"]  # type: ignore
+        return battery_forecast.loc[midnight_today, "battery_soc_fraction"]  # type: ignore
 
     def _update(self) -> None:
         # Calculate these once, then cache
