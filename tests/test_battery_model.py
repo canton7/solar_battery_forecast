@@ -1,5 +1,3 @@
-import random
-
 from custom_components.solar_battery_forecast.brains.battery_model import Action
 from custom_components.solar_battery_forecast.brains.battery_model import ActionType
 from custom_components.solar_battery_forecast.brains.battery_model import BatteryModel
@@ -95,9 +93,6 @@ def test_flux() -> None:
 def run(
     consumption: list[float], generation: list[float], import_tariff: list[float], feed_in_tariff: list[float]
 ) -> list[Action]:
-    seed = random.randrange(2**32)
-    random.seed(seed)
-    print(f"Seed: {seed}")
     model = BatteryModel()
     model.debug = True
     segments = [
@@ -105,5 +100,5 @@ def run(
         for g, c, f, i in zip(generation, consumption, feed_in_tariff, import_tariff, strict=True)
     ]
     segments = segments + segments
-    result = model.shotgun_hillclimb(segments, 2)
+    result = model.solve(segments)
     return result

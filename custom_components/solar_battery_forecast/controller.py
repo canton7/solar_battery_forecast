@@ -174,8 +174,8 @@ class Controller(EntityController):
         ]
 
         initial_battery = soc * BATTERY_CAPACITY / 100
-        battery_model = BatteryModel(initial_battery=initial_battery)
-        actions, outputs = await self._hass.async_add_executor_job(battery_model.shotgun_hillclimb, segments)
+        battery_model = BatteryModel(initial_battery_kwh=initial_battery)
+        actions, outputs = await self._hass.async_add_executor_job(battery_model.solve, segments)
         self._state.current_action = actions[0]
 
         # The nth prediction is actually for the end of that hour. Translate by 1 to make it the prediction at the
