@@ -301,7 +301,7 @@ class BatteryModel:
 
         best_actions = None
         best_score = -math.inf
-        print(f"Number of results: {len(inputs)}")
+
         for input_state in inputs.values():
             # self.plot(segments, actions)
             if input_state.cumulative_score > best_score:
