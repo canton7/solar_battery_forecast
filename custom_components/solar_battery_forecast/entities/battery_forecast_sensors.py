@@ -52,7 +52,7 @@ class BatteryForecastSensorBase(EntityMixin, SensorEntity, ABC):
             "forecast": [
                 {
                     "start": x.Index.isoformat(),
-                    "soc": x.battery_soc,
+                    "soc": x.battery_soc_fraction,
                     "feed_in_kwh": x.feed_in_kwh,
                     "import_kwh": x.import_kwh,
                 }
