@@ -12,7 +12,7 @@ class ActionType(Enum):
     DISCHARGE = 2
 
 
-@dataclass
+@dataclass(slots=True)
 class Action:
     action_type: ActionType
     min_soc: float
@@ -25,7 +25,7 @@ class Action:
         return f"Action({self.action_type}, {self.min_soc}, {self.max_soc})"
 
 
-@dataclass
+@dataclass(slots=True)
 class TimeSegment:
     generation: float
     consumption: float
@@ -59,7 +59,8 @@ OPTIMIZATION_SOC_STEP_PERCENT = 10
 MARGIN = 1.0
 
 
-@dataclass(slots=True)
+# Can't be slots=True, as we do 'vars()' on it
+@dataclass
 class RunOutputSegment:
     battery_kwh: float
     battery_soc_fraction: float
